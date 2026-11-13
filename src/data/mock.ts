@@ -33,7 +33,6 @@ export const mockCollections: GroupCollection[] = [
   },
 ]
 
-/** Demo groups used after a successful sync / for UI previews */
 export const mockGroups: FacebookGroup[] = [
   {
     id: 'g1',
@@ -162,7 +161,6 @@ export const mockSchedules: ScheduledPost[] = [
 ]
 
 export const mockSettings: UserSettings = {
-  pairingCode: '482917',
   extensionId: '',
   minDelaySeconds: 45,
   maxDelaySeconds: 120,
@@ -176,12 +174,7 @@ export const mockSettings: UserSettings = {
   apiBaseUrl: appConfig.apiBaseUrl,
 }
 
-/**
- * First-login bootstrap: no synced groups yet so the Setup Wizard opens.
- * Collections + sample schedules stay available after skip / finish.
- */
 export function createBootstrap(): AppBootstrap {
-  const collections = structuredClone(mockCollections)
   return {
     connection: {
       extensionConnected: false,
@@ -189,7 +182,6 @@ export function createBootstrap(): AppBootstrap {
       lastGroupSyncAt: null,
       metaConnected: false,
       metaAccountLabel: null,
-      pairingCode: mockSettings.pairingCode,
     },
     stats: {
       syncedGroups: 0,
@@ -197,7 +189,7 @@ export function createBootstrap(): AppBootstrap {
       postsPublished: 0,
     },
     groups: [],
-    collections,
+    collections: structuredClone(mockCollections),
     schedules: structuredClone(mockSchedules),
     settings: structuredClone(mockSettings),
   }

@@ -1,17 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { isValidExtensionSyncSecret } from '../env'
-import { recordExtensionPing, verifyPairingCode } from '../db'
+import { recordExtensionPing } from '../db'
+import { getSessionFromRequestOrBearer } from '../lib/session'
 
-function header(req: VercelRequest, name: string): string {
-  const value = req.headers[name]
-  return Array.isArray(value) ? value[0] ?? '' : value ?? ''
-}
-
+/** POST /api/extension/ping — extension heartbeat (Bearer session token). */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, x-pairing-code, x-extension-sync-secret',
+    'Content-Type, Authorization, x-extension-sync-secret',
   )
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
 
@@ -22,10 +19,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: 'invalid_extension_sync_secret' })
   }
 
-  const pairingCode = header(req, 'x-pairing-code')
-  if (!pairingCode || !(await verifyPairingCode(pairingCode))) {
-    return res.status(401).json({ error: 'invalid_pairing_code' })
-  }
+  const session = getSessionFromRequestOrBearer(req)
+  if (!session) return res.status(401).json({ error: 'unauthorized' })
 
   const body = (req.body ?? {}) as { extensionId?: string }
   const result = await recordExtensionPing(body.extensionId)
@@ -34,5 +29,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ok: true,
     extensionConnected: true,
     lastExtensionPing: result.lastExtensionPing,
+    userId: session.sub,
   })
 }

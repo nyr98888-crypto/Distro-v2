@@ -39,7 +39,6 @@ export interface ScheduledPost {
 }
 
 export interface UserSettings {
-  pairingCode: string
   extensionId: string
   minDelaySeconds: number
   maxDelaySeconds: number
@@ -71,7 +70,6 @@ export interface ConnectionStatus {
   lastGroupSyncAt: string | null
   metaConnected: boolean
   metaAccountLabel: string | null
-  pairingCode: string
 }
 
 export interface DashboardStats {
@@ -98,4 +96,17 @@ export interface ScheduleInput {
   days: DayOfWeek[]
   time: string
   status: ScheduleStatus
+}
+
+/** Authenticated Distro user (Google or Facebook Sign-In). */
+export interface AuthUser {
+  id: string
+  provider: 'google' | 'facebook'
+  providerSub: string
+  email: string
+  name: string
+  picture: string | null
+  createdAt: string
+  updatedAt: string
+  lastLoginAt: string
 }

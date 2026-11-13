@@ -1,25 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { assertGoogleConfigured, env } from '../../env'
 import { verifyOAuthState } from '../../lib/crypto'
+import { createSessionToken, setSessionCookie } from '../../lib/session'
+import { upsertUserFromOAuth } from '../../db'
 
 type GoogleTokenResponse = {
   access_token?: string
-  id_token?: string
   error?: string
-  error_description?: string
 }
 
 type GoogleUserInfo = {
   id?: string
   email?: string
-  verified_email?: boolean
   name?: string
   picture?: string
 }
 
-/**
- * GET /api/auth/google/callback — exchange code and complete "Continue with Google".
- */
+/** GET /api/auth/google/callback */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'method_not_allowed' })
@@ -28,19 +25,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const code = typeof req.query.code === 'string' ? req.query.code : ''
   const state = typeof req.query.state === 'string' ? req.query.state : ''
   const oauthError = typeof req.query.error === 'string' ? req.query.error : ''
+  const home = env.appUrl.replace(/\/$/, '')
 
-  const redirectHome = (query = '') => {
-    const target = `${env.appUrl.replace(/\/$/, '')}/${query}`
-    return res.redirect(302, target)
-  }
-
-  if (oauthError) {
-    return redirectHome('?google=error')
-  }
+  if (oauthError) return res.redirect(302, `${home}/?auth=error`)
 
   const statePayload = verifyOAuthState(state)
   if (!code || !statePayload || statePayload.provider !== 'google') {
-    return redirectHome('?google=invalid_state')
+    return res.redirect(302, `${home}/?auth=invalid_state`)
   }
 
   try {
@@ -60,24 +51,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body,
     })
     const tokenJson = (await tokenRes.json()) as GoogleTokenResponse
-
     if (!tokenRes.ok || !tokenJson.access_token) {
-      return redirectHome('?google=token_exchange_failed')
+      return res.redirect(302, `${home}/?auth=token_failed`)
     }
 
     const meRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokenJson.access_token}` },
     })
-    const meJson = (await meRes.json()) as GoogleUserInfo
-
-    if (!meRes.ok || !meJson.id) {
-      return redirectHome('?google=profile_failed')
+    const me = (await meRes.json()) as GoogleUserInfo
+    if (!meRes.ok || !me.id) {
+      return res.redirect(302, `${home}/?auth=profile_failed`)
     }
 
-    // Session cookie / user persistence can be expanded later; surface identity in redirect for now.
-    const label = encodeURIComponent(meJson.name || meJson.email || meJson.id)
-    return redirectHome(`?google=connected&user=${label}`)
+    const user = await upsertUserFromOAuth({
+      provider: 'google',
+      providerSub: me.id,
+      email: me.email || `${me.id}@google.user`,
+      name: me.name || me.email || 'Google User',
+      picture: me.picture || null,
+    })
+
+    const sessionToken = createSessionToken({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      picture: user.picture,
+      provider: 'google',
+    })
+    setSessionCookie(res, req, sessionToken)
+    return res.redirect(302, `${home}/?auth=connected`)
   } catch {
-    return redirectHome('?google=error')
+    return res.redirect(302, `${home}/?auth=error`)
   }
 }

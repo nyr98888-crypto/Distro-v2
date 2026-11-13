@@ -28,7 +28,6 @@ interface AppDataContextValue {
   toggleGroupActive: (id: string) => void
   addCollection: (name: string, color?: string) => void
   updateSettings: (patch: Partial<UserSettings>) => void
-  regeneratePairingCode: () => void
   refreshStats: () => void
 }
 
@@ -44,7 +43,6 @@ function refreshDerived(data: AppBootstrap): AppBootstrap {
     },
     connection: {
       ...data.connection,
-      pairingCode: data.settings.pairingCode,
       metaConnected: data.settings.metaConnected,
       metaAccountLabel: data.settings.metaAccountLabel,
       lastGroupSyncAt: data.settings.lastGroupSyncAt,
@@ -163,16 +161,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  const regeneratePairingCode = useCallback(() => {
-    const code = String(Math.floor(100000 + Math.random() * 900000))
-    setData((prev) =>
-      refreshDerived({
-        ...prev,
-        settings: { ...prev.settings, pairingCode: code },
-      }),
-    )
-  }, [])
-
   const refreshStats = useCallback(() => {
     setData((prev) => refreshDerived(prev))
   }, [])
@@ -189,7 +177,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       toggleGroupActive,
       addCollection,
       updateSettings,
-      regeneratePairingCode,
       refreshStats,
     }),
     [
@@ -203,7 +190,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       toggleGroupActive,
       addCollection,
       updateSettings,
-      regeneratePairingCode,
       refreshStats,
     ],
   )

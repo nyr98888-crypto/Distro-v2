@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Distro</title>
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        font-family: Heebo, system-ui, sans-serif;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+      }
+      .logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+      .title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .subtitle {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-top: 2px;
+      }
+      .content {
+        padding: 20px 16px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 14px;
+      }
+      .badge.ok {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+      }
+      .badge.wait {
+        background: rgba(251, 191, 36, 0.12);
+        color: #fbbf24;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+      button {
+        width: 100%;
+        border: none;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .primary {
+        background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+        color: #0f172a;
+      }
+      .secondary {
+        margin-top: 10px;
+        background: transparent;
+        color: #7dd3fc;
+        border: 1px solid #334155;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 12px;
+        text-align: center;
+        color: #94a3b8;
+      }
+      .status.ok {
+        color: #34d399;
+      }
+      .status.err {
+        color: #f87171;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <img src="icons/icon48.png" alt="" class="logo" />
+      <div>
+        <div class="title">DISTRO</div>
+        <div class="subtitle">סנכרון קבוצות אוטומטי</div>
+      </div>
+    </div>
+    <div class="content">
+      <div id="badge" class="badge wait">
+        <span class="dot"></span>
+        <span id="badgeText">בודק חיבור...</span>
+      </div>
+      <button id="primaryBtn" class="primary" type="button">התחברות ל-Distro</button>
+      <button id="syncBtn" class="secondary" type="button" hidden>משוך וסנכרן קבוצות</button>
+      <div id="status" class="status"></div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

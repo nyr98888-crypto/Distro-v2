@@ -46,6 +46,10 @@ export const appConfig = {
     return `${this.apiBaseUrl}/auth/meta`
   },
 
+  get googleConnectUrl(): string {
+    return `${this.apiBaseUrl}/auth/google`
+  },
+
   get extensionStoreUrl(): string {
     const fromEnv = import.meta.env.VITE_EXTENSION_STORE_URL
     if (fromEnv && typeof fromEnv === 'string' && fromEnv.length > 0) {

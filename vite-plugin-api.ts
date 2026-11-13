@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { URL } from 'node:url'
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
@@ -12,28 +13,44 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(res: ServerResponse, status: number, body: unknown, extraHeaders?: Record<string, string>): void {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Origin', extraHeaders?.['Access-Control-Allow-Origin'] || '*')
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, x-pairing-code, x-extension-sync-secret',
+    'Content-Type, Authorization, x-extension-sync-secret',
   )
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) {
+      if (k !== 'Access-Control-Allow-Origin') res.setHeader(k, v)
+    }
+  }
   res.end(JSON.stringify(body))
 }
 
+function toVercelLike(req: IncomingMessage, url: URL) {
+  const cookies = req.headers.cookie
+  return {
+    method: req.method,
+    headers: req.headers as Record<string, string | string[] | undefined>,
+    query: Object.fromEntries(url.searchParams.entries()),
+    body: undefined as unknown,
+  }
+}
+
 /**
- * Lightweight local API for `vite` so onboarding polling works without `vercel dev`.
+ * Local API for `vite` — mirrors Vercel serverless auth + sync routes.
  */
 export function distroLocalApi(): Plugin {
   return {
     name: 'distro-local-api',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        const url = req.url?.split('?')[0] ?? ''
-        if (!url.startsWith('/api/')) return next()
+        const rawUrl = req.url ?? '/'
+        if (!rawUrl.startsWith('/api/')) return next()
+        const url = new URL(rawUrl, 'http://127.0.0.1')
 
         if (req.method === 'OPTIONS') {
           send(res, 204, {})
@@ -41,72 +58,124 @@ export function distroLocalApi(): Plugin {
         }
 
         try {
-          const db = await import('./api/db')
+          const vercelReq = toVercelLike(req, url) as import('@vercel/node').VercelRequest
+          const vercelRes = {
+            statusCode: 200,
+            headers: {} as Record<string, string | string[]>,
+            status(code: number) {
+              this.statusCode = code
+              return this
+            },
+            json(body: unknown) {
+              send(res, this.statusCode, body, flattenHeaders(this.headers))
+              return this
+            },
+            send(body: string) {
+              res.statusCode = this.statusCode
+              applyHeaders(res, this.headers)
+              res.end(body)
+              return this
+            },
+            end() {
+              res.statusCode = this.statusCode
+              applyHeaders(res, this.headers)
+              res.end()
+              return this
+            },
+            redirect(code: number, location: string) {
+              res.statusCode = code
+              applyHeaders(res, this.headers)
+              res.setHeader('Location', location)
+              res.end()
+              return this
+            },
+            setHeader(key: string, value: string | string[]) {
+              this.headers[key] = value
+              return this
+            },
+            getHeader(key: string) {
+              return this.headers[key]
+            },
+          } as unknown as import('@vercel/node').VercelResponse
 
-          if (url === '/api/health' && req.method === 'GET') {
-            const connection = await db.getConnectionStatus()
+          if (url.pathname === '/api/auth/google' && req.method === 'GET') {
+            const handler = (await import('./api/auth/google')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/auth/google/callback' && req.method === 'GET') {
+            const handler = (await import('./api/auth/google/callback')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/auth/meta' && req.method === 'GET') {
+            const handler = (await import('./api/auth/meta')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/auth/meta/callback' && req.method === 'GET') {
+            const handler = (await import('./api/auth/meta/callback')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+            const handler = (await import('./api/auth/me')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/auth/logout' && (req.method === 'GET' || req.method === 'POST')) {
+            const handler = (await import('./api/auth/logout')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+          if (url.pathname === '/api/extension/token' && req.method === 'GET') {
+            const handler = (await import('./api/extension/token')).default
+            await handler(vercelReq, vercelRes)
+            return
+          }
+
+          const db = await import('./api/db')
+          const session = await import('./api/lib/session')
+
+          if (url.pathname === '/api/health' && req.method === 'GET') {
             send(res, 200, {
               ok: true,
               service: 'distro-v2',
               storage: db.storageMode(),
-              connection,
+              connection: await db.getConnectionStatus(),
             })
             return
           }
 
-          if (url === '/api/sync-status' && req.method === 'GET') {
+          if (url.pathname === '/api/sync-status' && req.method === 'GET') {
             send(res, 200, await db.getSyncStatus())
             return
           }
 
-          if (url === '/api/groups' && req.method === 'GET') {
+          if (url.pathname === '/api/groups' && req.method === 'GET') {
             const groups = await db.listGroups()
             send(res, 200, { groups, count: groups.length })
             return
           }
 
-          if (url === '/api/extension/ping' && req.method === 'POST') {
-            const pairing =
-              (req.headers['x-pairing-code'] as string | undefined) ?? ''
-            if (!(await db.verifyPairingCode(pairing))) {
-              send(res, 401, { error: 'invalid_pairing_code' })
-              return
-            }
+          if (url.pathname === '/api/extension/ping' && req.method === 'POST') {
             const body = (await readJson(req)) as { extensionId?: string }
-            const result = await db.recordExtensionPing(body.extensionId)
-            send(res, 200, {
-              ok: true,
-              extensionConnected: true,
-              lastExtensionPing: result.lastExtensionPing,
-            })
+            ;(vercelReq as { body?: unknown }).body = body
+            const handler = (await import('./api/extension/ping')).default
+            await handler(vercelReq, vercelRes)
             return
           }
 
-          if (url === '/api/sync-groups' && req.method === 'POST') {
-            const pairing =
-              (req.headers['x-pairing-code'] as string | undefined) ?? ''
-            if (!(await db.verifyPairingCode(pairing))) {
-              send(res, 401, { error: 'invalid_pairing_code' })
-              return
-            }
-            const body = (await readJson(req)) as {
-              extensionId?: string
-              groups?: Array<{
-                name: string
-                fbGroupId: string
-                url?: string
-                memberCount?: number
-                avatarUrl?: string | null
-              }>
-            }
-            const result = await db.syncGroupsFromExtension({
-              extensionId: body.extensionId,
-              groups: body.groups ?? [],
-            })
-            await db.recordExtensionPing(body.extensionId)
-            send(res, 200, { ok: true, count: result.count })
+          if (url.pathname === '/api/sync-groups' && req.method === 'POST') {
+            const body = await readJson(req)
+            ;(vercelReq as { body?: unknown }).body = body
+            const handler = (await import('./api/sync-groups')).default
+            await handler(vercelReq, vercelRes)
             return
           }
+
+          // silence unused
+          void session
 
           send(res, 404, { error: 'not_found' })
         } catch (error) {
@@ -115,5 +184,19 @@ export function distroLocalApi(): Plugin {
         }
       })
     },
+  }
+}
+
+function flattenHeaders(headers: Record<string, string | string[]>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    out[k] = Array.isArray(v) ? v.join(', ') : v
+  }
+  return out
+}
+
+function applyHeaders(res: ServerResponse, headers: Record<string, string | string[]>) {
+  for (const [k, v] of Object.entries(headers)) {
+    res.setHeader(k, v)
   }
 }

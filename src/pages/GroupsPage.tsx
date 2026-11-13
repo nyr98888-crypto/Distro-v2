@@ -158,13 +158,9 @@ export function GroupsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void 
       {guideOpen && (
         <Modal title={t('syncViaExtension')} onClose={() => setGuideOpen(false)}>
           <ol className="list-decimal space-y-2 ps-5 text-sm text-slate-600">
-            <li>Open Distro Settings and copy your 6-digit pairing code.</li>
-            <li>
-              On PC Chrome (or Android Kiwi / Mises), open the Distro extension and paste the code.
-            </li>
-            <li>
-              The extension POSTs groups to <code className="rounded bg-slate-100 px-1">{data.settings.apiBaseUrl}/sync-groups</code> with header <code className="rounded bg-slate-100 px-1">x-pairing-code</code>.
-            </li>
+            <li>התקינו את תוסף Distro בדפדפן (Chrome / Kiwi / Mises).</li>
+            <li>הישארו מחוברים באתר — התוסף מתחבר אוטומטית בלי קוד.</li>
+            <li>פתחו פייסבוק, לחצו על התוסף ובחרו «משוך וסנכרן קבוצות».</li>
           </ol>
           <button
             type="button"

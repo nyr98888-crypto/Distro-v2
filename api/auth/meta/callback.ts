@@ -1,11 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { assertMetaConfigured, env } from '../../env'
 import { verifyOAuthState } from '../../lib/crypto'
-import { saveMetaTokens } from '../../db'
+import { createSessionToken, setSessionCookie } from '../../lib/session'
+import { saveMetaTokens, upsertUserFromOAuth } from '../../db'
 
-/**
- * GET /api/auth/meta/callback — exchange code for token (PC / Android / iOS).
- */
+/** GET /api/auth/meta/callback — Facebook login + optional Meta posting token. */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'method_not_allowed' })
@@ -14,18 +13,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const code = typeof req.query.code === 'string' ? req.query.code : ''
   const state = typeof req.query.state === 'string' ? req.query.state : ''
   const oauthError = typeof req.query.error === 'string' ? req.query.error : ''
+  const home = env.appUrl.replace(/\/$/, '')
 
-  const redirectHome = (query = '') => {
-    const target = `${env.appUrl.replace(/\/$/, '')}/${query}`
-    return res.redirect(302, target)
-  }
+  if (oauthError) return res.redirect(302, `${home}/?auth=error`)
 
-  if (oauthError) {
-    return redirectHome('?meta=error')
-  }
-
-  if (!code || !verifyOAuthState(state)) {
-    return redirectHome('?meta=invalid_state')
+  const statePayload = verifyOAuthState(state)
+  if (!code || !statePayload || statePayload.provider !== 'facebook') {
+    return res.redirect(302, `${home}/?auth=invalid_state`)
   }
 
   try {
@@ -38,28 +32,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     tokenUrl.searchParams.set('code', code)
 
     const tokenRes = await fetch(tokenUrl)
-    const tokenJson = (await tokenRes.json()) as {
-      access_token?: string
-      error?: { message?: string }
-    }
-
+    const tokenJson = (await tokenRes.json()) as { access_token?: string }
     if (!tokenRes.ok || !tokenJson.access_token) {
-      return redirectHome('?meta=token_exchange_failed')
+      return res.redirect(302, `${home}/?auth=token_failed`)
     }
 
     const meUrl = new URL(`https://graph.facebook.com/${env.metaGraphVersion}/me`)
-    meUrl.searchParams.set('fields', 'id,name')
+    meUrl.searchParams.set('fields', 'id,name,email,picture.type(large)')
     meUrl.searchParams.set('access_token', tokenJson.access_token)
     const meRes = await fetch(meUrl)
-    const meJson = (await meRes.json()) as { id?: string; name?: string }
+    const me = (await meRes.json()) as {
+      id?: string
+      name?: string
+      email?: string
+      picture?: { data?: { url?: string } }
+    }
+
+    if (!me.id) return res.redirect(302, `${home}/?auth=profile_failed`)
+
+    const user = await upsertUserFromOAuth({
+      provider: 'facebook',
+      providerSub: me.id,
+      email: me.email || `${me.id}@facebook.user`,
+      name: me.name || me.email || 'Facebook User',
+      picture: me.picture?.data?.url || null,
+    })
 
     await saveMetaTokens({
       accessToken: tokenJson.access_token,
-      accountLabel: meJson.name || meJson.id || 'Meta account',
+      accountLabel: user.name,
     })
 
-    return redirectHome('?meta=connected')
+    const sessionToken = createSessionToken({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      picture: user.picture,
+      provider: 'facebook',
+    })
+    setSessionCookie(res, req, sessionToken)
+    return res.redirect(302, `${home}/?auth=connected`)
   } catch {
-    return redirectHome('?meta=error')
+    return res.redirect(302, `${home}/?auth=error`)
   }
 }

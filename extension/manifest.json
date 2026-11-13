@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "DISTRO - Smart Group Campaign Manager",
+  "version": "1.0.9",
+  "description": "סנכרון אוטומטי של קבוצות פייסבוק עם Distro V2 — בלי קודים ובלי הגדרות.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "Distro"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://distrov2-teal.vercel.app/*",
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*"
+      ],
+      "js": ["web-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "permissions": ["storage", "cookies", "tabs", "scripting"],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "https://distrov2-teal.vercel.app/*",
+    "http://localhost:5173/*",
+    "http://127.0.0.1:5173/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://distrov2-teal.vercel.app/*",
+      "http://localhost:5173/*",
+      "http://127.0.0.1:5173/*"
+    ]
+  }
+}

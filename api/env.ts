@@ -5,7 +5,9 @@
 
 function read(key: string, fallback = ''): string {
   const value = process.env[key]
-  return typeof value === 'string' ? value.trim() : fallback
+  if (typeof value !== 'string') return fallback
+  // Strip wrapping quotes often pasted into .env / Vercel UI
+  return value.trim().replace(/^["']|["']$/g, '')
 }
 
 export const env = {

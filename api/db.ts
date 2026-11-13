@@ -2,6 +2,7 @@ import { createClient, type Client } from '@libsql/client'
 import { env } from './env'
 import { decryptToken, encryptToken } from './lib/crypto'
 import type {
+  AuthUser,
   FacebookGroup,
   GroupCollection,
   ScheduledPost,
@@ -22,6 +23,7 @@ type MemoryStore = {
   schedules: Map<string, ScheduledPost>
   settings: Map<string, string>
   collectionGroups: Map<string, Set<string>>
+  users: Map<string, AuthUser>
 }
 
 declare global {
@@ -41,6 +43,7 @@ function memory(): MemoryStore {
       schedules: new Map(),
       settings: new Map(),
       collectionGroups: new Map(),
+      users: new Map(),
     }
     seedMemory(globalThis.__distroMemoryStore)
   }
@@ -51,13 +54,8 @@ function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function pairingCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
-}
-
 function seedMemory(store: MemoryStore): void {
   const now = new Date().toISOString()
-  store.settings.set('pairing_code', pairingCode())
   store.settings.set('extension_id', '')
   store.settings.set('min_delay_seconds', '45')
   store.settings.set('max_delay_seconds', '120')
@@ -130,7 +128,7 @@ function getTurso(): Client | null {
 }
 
 async function ensureSchema(client: Client): Promise<void> {
-  if (globalThis.__distroSchemaReady) return
+  // Always idempotent CREATE — safe across Fluid Compute warm instances
   await client.batch(
     [
       `CREATE TABLE IF NOT EXISTS settings (
@@ -170,9 +168,21 @@ async function ensureSchema(client: Client): Promise<void> {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        google_sub TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        picture TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL
+      )`,
     ],
     'write',
   )
+
+  if (globalThis.__distroSchemaReady) return
 
   const existing = await client.execute('SELECT COUNT(*) AS c FROM settings')
   const count = Number(existing.rows[0]?.c ?? 0)
@@ -180,10 +190,6 @@ async function ensureSchema(client: Client): Promise<void> {
     const now = new Date().toISOString()
     await client.batch(
       [
-        {
-          sql: 'INSERT INTO settings (key, value) VALUES (?, ?)',
-          args: ['pairing_code', pairingCode()],
-        },
         { sql: 'INSERT INTO settings (key, value) VALUES (?, ?)', args: ['extension_id', ''] },
         { sql: 'INSERT INTO settings (key, value) VALUES (?, ?)', args: ['min_delay_seconds', '45'] },
         { sql: 'INSERT INTO settings (key, value) VALUES (?, ?)', args: ['max_delay_seconds', '120'] },
@@ -330,12 +336,11 @@ export async function getUserSettings(): Promise<UserSettings> {
   }
 
   return {
-    pairingCode: await getSetting('pairing_code', pairingCode()),
     extensionId: await getSetting('extension_id'),
     minDelaySeconds: Number(await getSetting('min_delay_seconds', '45')),
     maxDelaySeconds: Number(await getSetting('max_delay_seconds', '120')),
     dailyPostLimit: Number(await getSetting('daily_post_limit', '25')),
-    locale: ((await getSetting('locale', 'en')) as LocaleCode) || 'en',
+    locale: ((await getSetting('locale', 'he')) as LocaleCode) || 'he',
     metaConnected: (await getSetting('meta_connected')) === '1',
     metaAccountLabel: (await getSetting('meta_account_label')) || null,
     metaAccessToken,
@@ -390,7 +395,6 @@ export async function getConnectionStatus(): Promise<ConnectionStatus> {
     lastGroupSyncAt: last,
     metaConnected: settings.metaConnected,
     metaAccountLabel: settings.metaAccountLabel,
-    pairingCode: settings.pairingCode,
   }
 }
 
@@ -417,16 +421,6 @@ export async function getBootstrap(): Promise<AppBootstrap> {
   return { connection, stats, groups, collections, schedules, settings }
 }
 
-export async function regeneratePairingCode(): Promise<string> {
-  const code = pairingCode()
-  await setSetting('pairing_code', code)
-  return code
-}
-
-export async function verifyPairingCode(code: string): Promise<boolean> {
-  const current = await getSetting('pairing_code')
-  return Boolean(code) && code === current
-}
 
 export async function syncGroupsFromExtension(
   payload: ExtensionSyncPayload,
@@ -582,4 +576,123 @@ export async function upsertSchedule(input: ScheduleInput): Promise<ScheduledPos
 
 export function storageMode(): 'turso' | 'memory' {
   return env.hasTurso ? 'turso' : 'memory'
+}
+
+/** Encode provider identity into the existing unique `google_sub` column. */
+function providerKey(provider: 'google' | 'facebook', providerSub: string): string {
+  return provider === 'google' ? providerSub : `fb:${providerSub}`
+}
+
+function mapUserRow(row: Record<string, unknown>): AuthUser {
+  const raw = String(row.google_sub ?? row.googleSub ?? '')
+  const isFb = raw.startsWith('fb:')
+  return {
+    id: String(row.id),
+    provider: isFb ? 'facebook' : 'google',
+    providerSub: isFb ? raw.slice(3) : raw,
+    email: String(row.email),
+    name: String(row.name ?? ''),
+    picture: row.picture ? String(row.picture) : null,
+    createdAt: String(row.created_at ?? row.createdAt),
+    updatedAt: String(row.updated_at ?? row.updatedAt),
+    lastLoginAt: String(row.last_login_at ?? row.lastLoginAt),
+  }
+}
+
+export async function getUserById(userId: string): Promise<AuthUser | null> {
+  const client = getTurso()
+  if (!client) {
+    return memory().users.get(userId) ?? null
+  }
+  await ensureSchema(client)
+  const result = await client.execute({
+    sql: 'SELECT * FROM users WHERE id = ? LIMIT 1',
+    args: [userId],
+  })
+  if (!result.rows[0]) return null
+  return mapUserRow(result.rows[0] as Record<string, unknown>)
+}
+
+export async function getUserByProviderSub(
+  provider: 'google' | 'facebook',
+  providerSub: string,
+): Promise<AuthUser | null> {
+  const key = providerKey(provider, providerSub)
+  const client = getTurso()
+  if (!client) {
+    return (
+      Array.from(memory().users.values()).find(
+        (u) => u.provider === provider && u.providerSub === providerSub,
+      ) ?? null
+    )
+  }
+  await ensureSchema(client)
+  const result = await client.execute({
+    sql: 'SELECT * FROM users WHERE google_sub = ? LIMIT 1',
+    args: [key],
+  })
+  if (!result.rows[0]) return null
+  return mapUserRow(result.rows[0] as Record<string, unknown>)
+}
+
+/** Upsert Google/Facebook profile into Turso (or memory fallback). */
+export async function upsertUserFromOAuth(input: {
+  provider: 'google' | 'facebook'
+  providerSub: string
+  email: string
+  name: string
+  picture: string | null
+}): Promise<AuthUser> {
+  const now = new Date().toISOString()
+  const key = providerKey(input.provider, input.providerSub)
+  const client = getTurso()
+
+  if (!client) {
+    const store = memory()
+    const existing = Array.from(store.users.values()).find(
+      (u) => u.provider === input.provider && u.providerSub === input.providerSub,
+    )
+    const user: AuthUser = {
+      id: existing?.id ?? id('usr'),
+      provider: input.provider,
+      providerSub: input.providerSub,
+      email: input.email,
+      name: input.name,
+      picture: input.picture,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      lastLoginAt: now,
+    }
+    store.users.set(user.id, user)
+    return user
+  }
+
+  await ensureSchema(client)
+  const existing = await getUserByProviderSub(input.provider, input.providerSub)
+  const userId = existing?.id ?? id('usr')
+
+  await client.execute({
+    sql: `INSERT INTO users (id, google_sub, email, name, picture, created_at, updated_at, last_login_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(google_sub) DO UPDATE SET
+            email = excluded.email,
+            name = excluded.name,
+            picture = excluded.picture,
+            updated_at = excluded.updated_at,
+            last_login_at = excluded.last_login_at`,
+    args: [
+      userId,
+      key,
+      input.email,
+      input.name,
+      input.picture,
+      existing?.createdAt ?? now,
+      now,
+      now,
+    ],
+  })
+
+  const saved = await getUserByProviderSub(input.provider, input.providerSub)
+  if (!saved) throw new Error('failed_to_upsert_user')
+  return saved
 }

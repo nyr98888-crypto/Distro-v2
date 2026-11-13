@@ -3,7 +3,7 @@ import { assertMetaConfigured, env } from '../env'
 import { signOAuthState } from '../lib/crypto'
 
 /**
- * GET /api/auth/meta — start Meta OAuth (works on PC, Android, iOS Safari).
+ * GET /api/auth/meta — Facebook Sign-In (user login) + Meta connection.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -15,16 +15,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'meta_not_configured'
     return res.status(503).send(
-      `<!doctype html><html><body style="font-family:system-ui;padding:2rem">
-        <h1>Meta OAuth not configured</h1>
+      `<!doctype html><html lang="he" dir="rtl"><body style="font-family:Heebo,system-ui;padding:2rem">
+        <h1>Facebook OAuth לא מוגדר</h1>
         <p>${message}</p>
-        <p>Set <code>META_APP_ID</code> and <code>META_APP_SECRET</code> in <code>.env.local</code> / Vercel.</p>
-        <p><a href="${env.appUrl}">Back to Distro V2</a></p>
+        <p><a href="${env.appUrl}">חזרה ל־Distro V2</a></p>
       </body></html>`,
     )
   }
 
   const state = signOAuthState({
+    provider: 'facebook',
     nonce: Math.random().toString(36).slice(2),
     ts: String(Date.now()),
   })
