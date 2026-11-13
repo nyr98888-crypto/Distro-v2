@@ -6,9 +6,9 @@
   "description": "Distro V2 — hybrid PWA for Facebook group post scheduling (PC, Android, iOS)",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.api.json"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

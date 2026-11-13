@@ -35,7 +35,7 @@ function readStoredLocale(): LocaleCode {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<LocaleCode>(() => readStoredLocale())
 
-  const dir = locale === 'he' ? 'rtl' : 'ltr'
+  const dir: 'ltr' | 'rtl' = locale === 'he' ? 'rtl' : 'ltr'
 
   useEffect(() => {
     document.documentElement.lang = locale
