@@ -180,6 +180,15 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
           </button>
         </div>
       </section>
+
+      <section className="card space-y-3 p-5">
+        <a
+          href="/privacy"
+          className="text-sm font-medium text-brand-indigo hover:underline"
+        >
+          {t('privacyPolicy')}
+        </a>
+      </section>
     </div>
   )
 }

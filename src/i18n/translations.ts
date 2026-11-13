@@ -32,6 +32,7 @@ export const translations = {
     extensionAutoHint:
       'התוסף מתחבר אוטומטית אחרי ההתחברות. אין צורך בקוד צימוד.',
     resyncExtension: 'סנכרן שוב לתוסף',
+    privacyPolicy: 'מדיניות פרטיות',
     copy: 'העתק',
     metaOAuth: 'חיבור Meta / פייסבוק',
     connectMeta: 'התחבר עם Meta / פייסבוק',
@@ -125,6 +126,7 @@ export const translations = {
     extensionAutoHint:
       'The extension connects automatically after login. No pairing code needed.',
     resyncExtension: 'Re-sync to extension',
+    privacyPolicy: 'Privacy Policy',
     copy: 'Copy',
     metaOAuth: 'Meta / Facebook',
     connectMeta: 'Connect with Meta / Facebook',

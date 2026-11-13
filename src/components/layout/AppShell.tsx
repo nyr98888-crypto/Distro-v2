@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useLanguage } from '../../context/LanguageContext'
+import { BrandLogo } from '../BrandLogo'
 import { ConnectionPill } from './ConnectionPill'
 
 export type AppTab = 'timing' | 'groups' | 'settings'
@@ -24,9 +25,7 @@ export function AppShell({ tab, onTabChange, onOpenSetupGuide, children }: AppSh
       <aside className="hidden w-[220px] shrink-0 flex-col bg-deep-slate text-white md:flex">
         <div className="px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-indigo text-sm font-bold">
-              D
-            </div>
+            <BrandLogo size={36} />
             <div>
               <div className="text-sm font-semibold tracking-tight">{t('appName')}</div>
               <div className="text-[11px] text-slate-400">Hybrid PWA</div>
@@ -67,9 +66,7 @@ export function AppShell({ tab, onTabChange, onOpenSetupGuide, children }: AppSh
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b border-line-soft bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-deep-slate text-xs font-bold text-white">
-              D
-            </div>
+            <BrandLogo size={32} rounded="rounded-lg" />
             <span className="text-sm font-semibold">{t('appName')}</span>
           </div>
           <div className="flex items-center gap-2">

@@ -16,7 +16,7 @@ export default defineConfig({
     distroLocalApi(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'pwa-192.png', 'pwa-512.png'],
+      includeAssets: ['favicon.ico', 'logo.png', 'apple-touch-icon.png', 'pwa-192.png', 'pwa-512.png'],
       manifest: {
         name: 'Distro V2',
         short_name: 'Distro',

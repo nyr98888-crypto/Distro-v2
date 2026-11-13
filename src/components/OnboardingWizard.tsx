@@ -7,6 +7,7 @@ import { appConfig } from '../lib/config'
 import { detectDevice, type DeviceKind } from '../lib/device'
 import { mockGroups } from '../data/mock'
 import { syncSessionToExtension } from '../lib/extensionBridge'
+import { BrandLogo } from './BrandLogo'
 
 interface OnboardingWizardProps {
   open: boolean
@@ -105,13 +106,16 @@ export function OnboardingWizard({ open, onClose }: OnboardingWizardProps) {
       >
         <header className="border-b border-line-soft px-5 py-4">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 id="onboarding-title" className="text-lg font-semibold text-slate-900 sm:text-xl">
-                {t('onboardingTitle')}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {step}/2 · {step === 1 ? t('onboardingStep1') : t('onboardingStep3')}
-              </p>
+            <div className="flex min-w-0 items-start gap-3">
+              <BrandLogo size={44} className="shrink-0 shadow-sm" />
+              <div className="min-w-0">
+                <h2 id="onboarding-title" className="text-lg font-semibold text-slate-900 sm:text-xl">
+                  {t('onboardingTitle')}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {step}/2 · {step === 1 ? t('onboardingStep1') : t('onboardingStep3')}
+                </p>
+              </div>
             </div>
             <button
               type="button"
