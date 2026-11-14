@@ -41,6 +41,12 @@ function extractErrorMessage(body: string): string | null {
   } catch {
     /* not JSON */
   }
+  if (/FUNCTION_INVOCATION_FAILED/i.test(text)) {
+    return (
+      'Google auth function crashed on Vercel (FUNCTION_INVOCATION_FAILED). ' +
+      'Check GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AUTH_SECRET, APP_URL on Vercel.'
+    )
+  }
   const pMatch = text.match(/<p>([^<]+)<\/p>/i)
   if (pMatch?.[1]) return pMatch[1].trim()
   const hMatch = text.match(/<h1>([^<]+)<\/h1>/i)

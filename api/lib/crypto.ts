@@ -1,10 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { env, assertAuthSecrets } from '../env'
+import { env, assertAuthSecret, assertEncryptionKey } from '../env'
 
 const ALGO = 'aes-256-gcm'
 
 function keyFromEnv(): Buffer {
-  assertAuthSecrets()
+  assertEncryptionKey()
   // Accept raw 32-byte hex (64 chars) or derive a 32-byte key from any longer secret.
   const raw = env.tokenEncryptionKey
   if (/^[0-9a-fA-F]{64}$/.test(raw)) {
@@ -41,7 +41,7 @@ export function decryptToken(payload: string): string {
 
 /** HMAC-friendly signed state for OAuth CSRF protection. */
 export function signOAuthState(payload: Record<string, string>): string {
-  assertAuthSecrets()
+  assertAuthSecret()
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const sig = createHash('sha256')
     .update(`${body}.${env.authSecret}`)
@@ -51,7 +51,7 @@ export function signOAuthState(payload: Record<string, string>): string {
 
 export function verifyOAuthState(state: string): Record<string, string> | null {
   try {
-    assertAuthSecrets()
+    assertAuthSecret()
     const [body, sig] = state.split('.')
     if (!body || !sig) return null
     const expected = createHash('sha256')

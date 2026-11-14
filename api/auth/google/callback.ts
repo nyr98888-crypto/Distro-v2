@@ -7,6 +7,7 @@ import { upsertUserFromOAuth } from '../../db'
 type GoogleTokenResponse = {
   access_token?: string
   error?: string
+  error_description?: string
 }
 
 type GoogleUserInfo = {
@@ -16,25 +17,52 @@ type GoogleUserInfo = {
   picture?: string
 }
 
+function homeOrigin(): string {
+  return env.appUrl.replace(/\/$/, '')
+}
+
+function wantsJson(req: VercelRequest): boolean {
+  const accept = req.headers.accept
+  const value = Array.isArray(accept) ? accept[0] : accept
+  return Boolean(value && value.includes('application/json'))
+}
+
+function fail(
+  req: VercelRequest,
+  res: VercelResponse,
+  status: number,
+  message: string,
+  authCode?: string,
+) {
+  console.error('[api/auth/google/callback]', message)
+  if (wantsJson(req)) {
+    return res.status(status).json({ error: message })
+  }
+  const code = authCode || 'error'
+  return res.redirect(302, `${homeOrigin()}/?auth=${encodeURIComponent(code)}`)
+}
+
 /** GET /api/auth/google/callback */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'method_not_allowed' })
-  }
-
-  const code = typeof req.query.code === 'string' ? req.query.code : ''
-  const state = typeof req.query.state === 'string' ? req.query.state : ''
-  const oauthError = typeof req.query.error === 'string' ? req.query.error : ''
-  const home = env.appUrl.replace(/\/$/, '')
-
-  if (oauthError) return res.redirect(302, `${home}/?auth=error`)
-
-  const statePayload = verifyOAuthState(state)
-  if (!code || !statePayload || statePayload.provider !== 'google') {
-    return res.redirect(302, `${home}/?auth=invalid_state`)
-  }
-
   try {
+    if (req.method !== 'GET') {
+      return res.status(405).json({ error: 'method_not_allowed' })
+    }
+
+    const home = homeOrigin()
+    const code = typeof req.query.code === 'string' ? req.query.code : ''
+    const state = typeof req.query.state === 'string' ? req.query.state : ''
+    const oauthError = typeof req.query.error === 'string' ? req.query.error : ''
+
+    if (oauthError) {
+      return fail(req, res, 400, `Google OAuth error: ${oauthError}`, 'error')
+    }
+
+    const statePayload = verifyOAuthState(state)
+    if (!code || !statePayload || statePayload.provider !== 'google') {
+      return fail(req, res, 400, 'Invalid or expired OAuth state.', 'invalid_state')
+    }
+
     assertGoogleConfigured()
 
     const body = new URLSearchParams({
@@ -52,7 +80,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     const tokenJson = (await tokenRes.json()) as GoogleTokenResponse
     if (!tokenRes.ok || !tokenJson.access_token) {
-      return res.redirect(302, `${home}/?auth=token_failed`)
+      const detail =
+        tokenJson.error_description || tokenJson.error || `HTTP ${tokenRes.status}`
+      return fail(req, res, 400, `Google token exchange failed: ${detail}`, 'token_failed')
     }
 
     const meRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -60,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     const me = (await meRes.json()) as GoogleUserInfo
     if (!meRes.ok || !me.id) {
-      return res.redirect(302, `${home}/?auth=profile_failed`)
+      return fail(req, res, 400, 'Failed to load Google user profile.', 'profile_failed')
     }
 
     const user = await upsertUserFromOAuth({
@@ -80,7 +110,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     setSessionCookie(res, req, sessionToken)
     return res.redirect(302, `${home}/?auth=connected`)
-  } catch {
-    return res.redirect(302, `${home}/?auth=error`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return fail(req, res, 500, message, 'error')
   }
 }

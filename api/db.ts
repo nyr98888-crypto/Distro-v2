@@ -1,4 +1,5 @@
-import { createClient, type Client } from '@libsql/client'
+// Use the web/HTTP client — avoids native libsql binaries that crash Vercel serverless.
+import { createClient, type Client } from '@libsql/client/web'
 import { env } from './env'
 import { decryptToken, encryptToken } from './lib/crypto'
 import type {
@@ -118,13 +119,18 @@ function seedMemory(store: MemoryStore): void {
 
 function getTurso(): Client | null {
   if (!env.hasTurso) return null
-  if (!globalThis.__distroTursoClient) {
-    globalThis.__distroTursoClient = createClient({
-      url: env.tursoDatabaseUrl,
-      authToken: env.tursoAuthToken,
-    })
+  try {
+    if (!globalThis.__distroTursoClient) {
+      globalThis.__distroTursoClient = createClient({
+        url: env.tursoDatabaseUrl,
+        authToken: env.tursoAuthToken,
+      })
+    }
+    return globalThis.__distroTursoClient
+  } catch (err) {
+    console.error('[Distro] Turso client init failed; falling back to memory', err)
+    return null
   }
-  return globalThis.__distroTursoClient
 }
 
 async function ensureSchema(client: Client): Promise<void> {

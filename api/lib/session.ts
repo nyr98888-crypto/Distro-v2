@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { assertAuthSecrets, env } from '../env'
+import { assertAuthSecret, env } from '../env'
 
 export const SESSION_COOKIE = 'distro_session'
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days
@@ -23,7 +23,7 @@ function b64url(input: Buffer | string): string {
 }
 
 function sign(body: string): string {
-  assertAuthSecrets()
+  assertAuthSecret()
   return createHmac('sha256', env.authSecret).update(body).digest('base64url')
 }
 
@@ -51,7 +51,7 @@ export function createSessionToken(input: {
 
 export function verifySessionToken(token: string): SessionPayload | null {
   try {
-    assertAuthSecrets()
+    assertAuthSecret()
     const [body, sig] = token.split('.')
     if (!body || !sig) return null
     const expected = sign(body)

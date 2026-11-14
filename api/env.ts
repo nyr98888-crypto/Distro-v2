@@ -10,7 +10,7 @@ function read(key: string, fallback = ''): string {
   const value = process.env[key]
   if (typeof value !== 'string') return fallback
   // Strip wrapping quotes often pasted into .env / Vercel UI
-  return value.trim().replace(/^["']|["']$/g, '')
+  return value.trim().replace(/^["']+|["']+$/g, '')
 }
 
 export const env = {
@@ -90,16 +90,26 @@ export function assertGoogleConfigured(): void {
   }
 }
 
-/** Throws if auth/encryption secrets are missing. */
-export function assertAuthSecrets(): void {
+/** HMAC / session signing only — required for Google OAuth start. */
+export function assertAuthSecret(): void {
   if (!env.authSecret || env.authSecret.length < 32) {
     throw new Error('AUTH_SECRET must be a random string of at least 32 characters.')
   }
+}
+
+/** Token-at-rest encryption — not required to start Google OAuth. */
+export function assertEncryptionKey(): void {
   if (!env.tokenEncryptionKey || env.tokenEncryptionKey.length < 32) {
     throw new Error(
       'TOKEN_ENCRYPTION_KEY must be a random hex string of at least 32 characters.',
     )
   }
+}
+
+/** Throws if auth/encryption secrets are missing. */
+export function assertAuthSecrets(): void {
+  assertAuthSecret()
+  assertEncryptionKey()
 }
 
 /** Validates Authorization: Bearer <CRON_SECRET> or x-cron-secret header. */
