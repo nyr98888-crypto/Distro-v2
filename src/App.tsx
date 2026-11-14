@@ -9,6 +9,7 @@ import { TimingPage } from './pages/TimingPage'
 import { GroupsPage } from './pages/GroupsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
+import { ExtensionConnectedBanner } from './components/ExtensionConnectedBanner'
 import { useAppData } from './context/AppDataContext'
 import { useAuth } from './context/AuthContext'
 
@@ -44,6 +45,7 @@ export default function App() {
 
   return (
     <>
+      <ExtensionConnectedBanner />
       <AppShell tab={tab} onTabChange={setTab} onOpenSetupGuide={openSetupGuide}>
         {tab === 'timing' && <TimingPage />}
         {tab === 'groups' && <GroupsPage onOpenSetupGuide={openSetupGuide} />}

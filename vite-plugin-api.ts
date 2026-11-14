@@ -108,16 +108,6 @@ export function distroLocalApi(): Plugin {
             await handler(vercelReq, vercelRes)
             return
           }
-          if (url.pathname === '/api/auth/meta' && req.method === 'GET') {
-            const handler = (await import('./api/auth/meta')).default
-            await handler(vercelReq, vercelRes)
-            return
-          }
-          if (url.pathname === '/api/auth/meta/callback' && req.method === 'GET') {
-            const handler = (await import('./api/auth/meta/callback')).default
-            await handler(vercelReq, vercelRes)
-            return
-          }
           if (url.pathname === '/api/auth/me' && req.method === 'GET') {
             const handler = (await import('./api/auth/me')).default
             await handler(vercelReq, vercelRes)

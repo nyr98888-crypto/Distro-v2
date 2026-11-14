@@ -1,10 +1,13 @@
 import { useAppData } from '../../context/AppDataContext'
 import { useLanguage } from '../../context/LanguageContext'
+import { useAuth } from '../../context/AuthContext'
 
 export function ConnectionPill({ compact = false }: { compact?: boolean }) {
   const { data } = useAppData()
   const { t } = useLanguage()
-  const { extensionConnected, metaConnected } = data.connection
+  const { extensionHandshakeOk } = useAuth()
+  const extensionConnected =
+    data.connection.extensionConnected || extensionHandshakeOk === true
 
   return (
     <div
@@ -23,10 +26,10 @@ export function ConnectionPill({ compact = false }: { compact?: boolean }) {
           inline={compact}
         />
         <StatusRow
-          label={t('meta')}
-          ok={metaConnected}
-          okLabel={t('connected')}
-          badLabel={t('disconnected')}
+          label="Facebook"
+          ok={true}
+          okLabel="דרך הדפדפן"
+          badLabel="דרך הדפדפן"
           inline={compact}
         />
       </div>

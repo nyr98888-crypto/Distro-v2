@@ -1,6 +1,9 @@
 /**
  * Central server-side environment config for Distro V2.
  * Used by Vercel serverless functions (and local `vercel dev`).
+ *
+ * Note: Meta Graph API keys are intentionally NOT used. Publishing goes through
+ * the user's Chrome facebook.com session via the Distro extension (v1.0.9).
  */
 
 function read(key: string, fallback = ''): string {
@@ -13,14 +16,19 @@ function read(key: string, fallback = ''): string {
 export const env = {
   /** Public app origin for redirects & client-facing URLs */
   get appUrl(): string {
-    return read('APP_URL') || read('VITE_APP_URL') || 'http://localhost:5173'
+    const explicit = read('APP_URL') || read('VITE_APP_URL')
+    if (explicit) return explicit.replace(/\/$/, '')
+    // Vercel sets VERCEL_URL without protocol (e.g. distrov2-teal.vercel.app)
+    const vercel = read('VERCEL_URL')
+    if (vercel) return `https://${vercel.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+    return 'http://localhost:5173'
   },
 
   get viteAppUrl(): string {
-    return read('VITE_APP_URL') || read('APP_URL') || 'http://localhost:5173'
+    return read('VITE_APP_URL') || this.appUrl
   },
 
-  // Google OAuth (user login — Continue with Google)
+  // Google OAuth (sole account sign-in)
   get googleClientId(): string {
     return read('GOOGLE_CLIENT_ID')
   },
@@ -28,35 +36,20 @@ export const env = {
     return read('GOOGLE_CLIENT_SECRET')
   },
   get googleRedirectUri(): string {
-    return (
-      read('GOOGLE_REDIRECT_URI') ||
-      `${this.appUrl.replace(/\/$/, '')}/api/auth/google/callback`
-    )
+    const derived = `${this.appUrl.replace(/\/$/, '')}/api/auth/google/callback`
+    const explicit = read('GOOGLE_REDIRECT_URI')
+    if (!explicit) return derived
+    // Ignore a localhost leftover when APP_URL is production (common Vercel misconfig)
+    try {
+      if (new URL(explicit).host !== new URL(this.appUrl).host) return derived
+    } catch {
+      return derived
+    }
+    return explicit
   },
   get hasGoogleOAuth(): boolean {
     return Boolean(this.googleClientId && this.googleClientSecret)
   },
-
-  // Meta / Facebook OAuth
-  get metaAppId(): string {
-    return read('META_APP_ID')
-  },
-  get metaAppSecret(): string {
-    return read('META_APP_SECRET')
-  },
-  get metaRedirectUri(): string {
-    return (
-      read('META_REDIRECT_URI') ||
-      `${this.appUrl.replace(/\/$/, '')}/api/auth/meta/callback`
-    )
-  },
-  get metaGraphVersion(): string {
-    return read('META_GRAPH_VERSION', 'v27.0') || 'v27.0'
-  },
-  get metaConfigId(): string {
-    return read('META_CONFIG_ID')
-  },
-
 
   // Auth / encryption
   get authSecret(): string {
@@ -93,15 +86,6 @@ export function assertGoogleConfigured(): void {
   if (!env.googleClientId || !env.googleClientSecret) {
     throw new Error(
       'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env.local (or Vercel env).',
-    )
-  }
-}
-
-/** Throws if required Meta OAuth vars are missing. */
-export function assertMetaConfigured(): void {
-  if (!env.metaAppId || !env.metaAppSecret) {
-    throw new Error(
-      'META_APP_ID and META_APP_SECRET must be set in .env.local (or Vercel env).',
     )
   }
 }

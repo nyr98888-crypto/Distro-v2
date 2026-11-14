@@ -24,19 +24,25 @@ Open [http://localhost:5173](http://localhost:5173). Without Turso credentials t
 
 | Variable | Purpose |
 |----------|---------|
-| `TURSO_DATABASE_URL` | Turso LibSQL URL |
-| `TURSO_AUTH_TOKEN` | Turso auth token |
-| `META_APP_ID` | Meta / Facebook app id |
-| `META_APP_SECRET` | Meta app secret |
-| `META_REDIRECT_URI` | OAuth callback (`https://your-app.vercel.app/api/auth/meta/callback`) |
-| `VITE_APP_URL` | Public app origin (local or production) |
+| `APP_URL` / `VITE_APP_URL` | Public origin (`https://distrov2-teal.vercel.app`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Sign-In (sole account login) |
+| `GOOGLE_REDIRECT_URI` | `https://distrov2-teal.vercel.app/api/auth/google/callback` |
+| `AUTH_SECRET` | Session / OAuth state signing (≥32 chars) |
+| `TOKEN_ENCRYPTION_KEY` | Token encryption at rest (≥32 chars) |
+| `VITE_EXTENSION_ID` | Optional; defaults to store ID `oogolchahhanackcmgicnnokaaehmkaj` |
+| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | Turso LibSQL (optional locally) |
+
+No Meta Graph API keys. Publishing uses the Chrome facebook.com session via Distro extension v1.0.9.
+
+Client login always builds OAuth URLs from `window.location.origin`.
 
 ## Deploy to Vercel
 
 1. Push this repo to GitHub.
 2. Import the project in Vercel.
-3. Add the env vars from `.env.example`.
-4. Deploy. Framework preset: **Vite**.
+3. Add the Google OAuth env vars above (Production + Preview).
+4. In Google Cloud Console, whitelist `https://distrov2-teal.vercel.app/api/auth/google/callback`.
+5. Deploy. Framework preset: **Vite**.
 
 ```bash
 npm run build
@@ -91,11 +97,11 @@ Body shape:
 
 Health check: `GET /api/health`
 
-## Meta OAuth
+## Google OAuth + extension handshake
 
-- Start: `GET /api/auth/meta`
-- Callback: `GET /api/auth/meta/callback`
-- Works in desktop browsers, Android Chrome, and iOS Safari (full-page redirect flow).
+- Start: `GET /api/auth/google`
+- Callback: `GET /api/auth/google/callback` → `/?auth=connected`
+- Web app sends `{ type: 'DISTRO_AUTH_SYNC', token, apiUrl }` to extension ID `oogolchahhanackcmgicnnokaaehmkaj` (v1.0.9).
 
 ## Scripts
 
@@ -109,7 +115,7 @@ Health check: `GET /api/health`
 ## App structure
 
 ```
-api/           Vercel serverless (db, sync, Meta OAuth)
+api/           Vercel serverless (db, sync, Google OAuth)
 shared/        Shared TypeScript types
 src/pages/     Timing, Groups, Settings
 src/components Adaptive shell (sidebar + mobile bottom nav)

@@ -51,6 +51,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         navigateFallback: '/index.html',
+        // Never serve the SPA shell for API/OAuth navigations — otherwise
+        // login buttons appear to "do nothing" (SW returns index.html).
+        navigateFallbackDenylist: [/^\/api\//],
       },
       devOptions: {
         enabled: true,

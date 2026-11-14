@@ -8,7 +8,7 @@ import type { LocaleCode } from '../i18n/translations'
 export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void }) {
   const { data, updateSettings } = useAppData()
   const { t, locale, setLocale } = useLanguage()
-  const { user, logout, loginWithGoogle, loginWithFacebook } = useAuth()
+  const { user, logout, loginWithGoogle, extensionHandshakeOk } = useAuth()
   const [minDelay, setMinDelay] = useState(data.settings.minDelaySeconds)
   const [maxDelay, setMaxDelay] = useState(data.settings.maxDelaySeconds)
   const [dailyLimit, setDailyLimit] = useState(data.settings.dailyPostLimit)
@@ -60,24 +60,44 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
           <div className="min-w-0">
             <div className="truncate font-medium text-slate-900">{user?.name}</div>
             <div className="truncate text-sm text-slate-500">{user?.email}</div>
-            <div className="text-xs text-slate-400">
-              {user?.provider === 'google' ? 'Google' : 'Facebook'}
-            </div>
+            <div className="text-xs text-slate-400">Google</div>
           </div>
         </div>
-        <button type="button" className="btn-secondary" onClick={() => void logout()}>
-          {t('logout')}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary" onClick={() => void logout()}>
+            {t('logout')}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              void loginWithGoogle().catch((err: unknown) => {
+                window.alert(err instanceof Error ? err.message : String(err))
+              })
+            }}
+          >
+            {t('loginWithGoogle')}
+          </button>
+        </div>
       </section>
 
       <section className="card space-y-4 p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">{t('extensionSync')}</h2>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-            {t('autoConnected')}
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              extensionHandshakeOk
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-amber-50 text-amber-800'
+            }`}
+          >
+            {extensionHandshakeOk ? t('autoConnected') : t('waitingConnection')}
           </span>
         </div>
         <p className="text-sm text-slate-600">{t('extensionAutoHint')}</p>
+        <p className="text-sm text-slate-600">
+          פרסום לקבוצות נעשה דרך סשן Facebook בדפדפן (Chrome) — לא דרך Meta Graph API.
+        </p>
         <div className="text-sm text-slate-600">
           {t('lastSync')}:{' '}
           {data.settings.lastGroupSyncAt
@@ -85,33 +105,8 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
             : t('never')}
         </div>
         <button type="button" className="btn-secondary" onClick={() => void resyncExtension()}>
-          {extSyncOk ? t('copied') : t('resyncExtension')}
+          {extSyncOk ? 'מחובר בהצלחה — התוסף מוכן לשימוש' : t('resyncExtension')}
         </button>
-      </section>
-
-      <section className="card space-y-4 p-5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">{t('metaOAuth')}</h2>
-          <span
-            className={`rounded-md px-2 py-0.5 text-xs font-medium ${
-              data.settings.metaConnected || user?.provider === 'facebook'
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {data.settings.metaConnected || user?.provider === 'facebook'
-              ? t('connected')
-              : t('disconnected')}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-primary" onClick={loginWithFacebook}>
-            {t('loginWithFacebook')}
-          </button>
-          <button type="button" className="btn-secondary" onClick={loginWithGoogle}>
-            {t('loginWithGoogle')}
-          </button>
-        </div>
       </section>
 
       <section className="card space-y-4 p-5">
@@ -182,10 +177,7 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
       </section>
 
       <section className="card space-y-3 p-5">
-        <a
-          href="/privacy"
-          className="text-sm font-medium text-brand-indigo hover:underline"
-        >
+        <a href="/privacy" className="text-sm font-medium text-brand-indigo hover:underline">
           {t('privacyPolicy')}
         </a>
       </section>
