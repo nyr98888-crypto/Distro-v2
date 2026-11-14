@@ -156,18 +156,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         headers: authHeaders(),
       })
       if (!res.ok) return
-      const json = (await res.json()) as { groups?: FacebookGroup[] }
+      const json = (await res.json()) as {
+        groups?: FacebookGroup[]
+        lastSyncAt?: string | null
+        lastGroupSyncAt?: string | null
+      }
       const remote = Array.isArray(json.groups) ? json.groups : []
-      if (remote.length === 0) return
+      const lastSync =
+        json.lastSyncAt || json.lastGroupSyncAt || (remote[0]?.syncedAt ?? null)
       setData((prev) => {
-        const merged = mergeGroups(prev.groups, remote)
-        writeCachedGroups(merged)
+        const merged = remote.length > 0 ? mergeGroups(prev.groups, remote) : prev.groups
+        if (remote.length > 0) writeCachedGroups(merged)
         return refreshDerived({
           ...prev,
           groups: merged,
           settings: {
             ...prev.settings,
-            lastGroupSyncAt: new Date().toISOString(),
+            lastGroupSyncAt: lastSync || prev.settings.lastGroupSyncAt,
+          },
+          connection: {
+            ...prev.connection,
+            lastGroupSyncAt: lastSync || prev.connection.lastGroupSyncAt,
+            extensionConnected:
+              Boolean(lastSync) ||
+              prev.connection.extensionConnected ||
+              remote.length > 0,
           },
         })
       })

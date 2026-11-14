@@ -6,7 +6,6 @@ function trimSlash(url: string): string {
   return url.replace(/\/$/, '')
 }
 
-/** Env vars required on Vercel for Google Sign-In (no Meta keys). */
 export const REQUIRED_OAUTH_ENV_VARS = [
   'APP_URL',
   'VITE_APP_URL',
@@ -19,10 +18,6 @@ export const REQUIRED_OAUTH_ENV_VARS = [
 ] as const
 
 export const appConfig = {
-  /**
-   * Public app origin. Prefer the live browser origin so production always
-   * resolves to e.g. https://distrov2-teal.vercel.app — never a baked-in localhost.
-   */
   get appUrl(): string {
     if (typeof window !== 'undefined' && window.location?.origin) {
       return trimSlash(window.location.origin)
@@ -50,6 +45,18 @@ export const appConfig = {
     return `${this.apiBaseUrl}/groups`
   },
 
+  get campaignsUrl(): string {
+    return `${this.apiBaseUrl}/campaigns`
+  },
+
+  get queueUrl(): string {
+    return `${this.apiBaseUrl}/queue`
+  },
+
+  get queueNextUrl(): string {
+    return `${this.apiBaseUrl}/queue/next`
+  },
+
   get extensionPingUrl(): string {
     return `${this.apiBaseUrl}/extension/ping`
   },
@@ -65,7 +72,6 @@ export const appConfig = {
   get extensionStoreUrl(): string {
     const fromEnv = import.meta.env.VITE_EXTENSION_STORE_URL
     if (fromEnv && typeof fromEnv === 'string' && fromEnv.length > 0) {
-      // Guard against duplicated KEY=VALUE paste accidents in .env
       const cleaned = fromEnv.includes('http')
         ? fromEnv.slice(fromEnv.indexOf('http'))
         : fromEnv

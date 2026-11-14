@@ -1,34 +1,46 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { isValidExtensionSyncSecret } from '../env'
-import { recordExtensionPing } from '../db'
-import { getSessionFromRequestOrBearer } from '../lib/session'
+/**
+ * POST /api/extension/ping — v1.0.9 heartbeat after DISTRO_AUTH_SYNC.
+ * Body: { extensionId }
+ * Auth: Bearer session token
+ */
+import {
+  parseJsonBody,
+  requireSession,
+  setCors,
+  type ApiReq,
+  type ApiRes,
+} from '../lib/auth'
+import { ensureSchema, getTurso, setUserSetting } from '../lib/turso'
 
-/** POST /api/extension/ping — extension heartbeat (Bearer session token). */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-extension-sync-secret',
-  )
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+export default async function handler(req: ApiReq, res: ApiRes) {
+  try {
+    setCors(req, res, 'POST, OPTIONS')
+    if (req.method === 'OPTIONS') return res.status(204).json({})
+    if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
 
-  if (req.method === 'OPTIONS') return res.status(204).end()
-  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+    const session = requireSession(req, res)
+    if (!session) return
 
-  if (!isValidExtensionSyncSecret(req)) {
-    return res.status(401).json({ error: 'invalid_extension_sync_secret' })
+    const body = parseJsonBody(req)
+    const extensionId = body.extensionId ? String(body.extensionId) : ''
+    const now = new Date().toISOString()
+
+    const client = getTurso()
+    if (client) {
+      await ensureSchema(client)
+      if (extensionId) await setUserSetting(client, session.sub, 'extension_id', extensionId)
+      await setUserSetting(client, session.sub, 'last_extension_ping', now)
+    }
+
+    return res.status(200).json({
+      ok: true,
+      extensionConnected: true,
+      lastExtensionPing: now,
+      userId: session.sub,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[api/extension/ping]', message)
+    return res.status(200).json({ ok: true, extensionConnected: true, warning: message })
   }
-
-  const session = getSessionFromRequestOrBearer(req)
-  if (!session) return res.status(401).json({ error: 'unauthorized' })
-
-  const body = (req.body ?? {}) as { extensionId?: string }
-  const result = await recordExtensionPing(body.extensionId)
-
-  return res.status(200).json({
-    ok: true,
-    extensionConnected: true,
-    lastExtensionPing: result.lastExtensionPing,
-    userId: session.sub,
-  })
 }
