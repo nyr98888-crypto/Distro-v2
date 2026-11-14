@@ -15,6 +15,9 @@ export default defineConfig({
     react(),
     distroLocalApi(),
     VitePWA({
+      // One-shot kill switch: stale SW was serving old index.html → missing
+      // /assets/*.js → MIME text/html → blank page. This SW unregisters itself.
+      selfDestroying: true,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'logo.png', 'apple-touch-icon.png', 'pwa-192.png', 'pwa-512.png'],
       manifest: {
