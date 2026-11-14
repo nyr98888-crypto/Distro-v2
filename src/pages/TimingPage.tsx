@@ -22,7 +22,13 @@ type QueueJobView = {
  * Click flow: בחר הכל → הפעל פרסום
  */
 export function TimingPage() {
-  const { data, refreshGroups } = useAppData()
+  const {
+    data,
+    refreshGroups,
+    selectedGroupIds,
+    setSelectedGroupIds,
+    selectAllGroups,
+  } = useAppData()
   const { t } = useLanguage()
 
   const [content, setContent] = useState('')
@@ -36,14 +42,13 @@ export function TimingPage() {
   const [maxDelay, setMaxDelay] = useState(data.settings.maxDelaySeconds || 120)
   const [urgentWindow, setUrgentWindow] = useState(60)
   const [autoPrioritize, setAutoPrioritize] = useState(true)
-  const [selected, setSelected] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
   const [jobs, setJobs] = useState<QueueJobView[]>([])
 
   const activeGroups = useMemo(() => data.groups.filter((g) => g.active), [data.groups])
-
-  const selectAll = () => setSelected(activeGroups.map((g) => g.id))
+  const selected = selectedGroupIds
+  const selectAll = () => selectAllGroups()
 
   const loadQueue = useCallback(async () => {
     try {
@@ -75,7 +80,7 @@ export function TimingPage() {
       setFlash('כתבו תוכן לפוסט')
       return
     }
-    if (selected.length === 0) {
+    if (selectedGroupIds.length === 0) {
       setFlash('לחצו «בחר הכל» או סמנו קבוצות')
       return
     }
@@ -93,7 +98,7 @@ export function TimingPage() {
         body: JSON.stringify({
           content: content.trim(),
           mediaUrl: mediaUrl.trim() || null,
-          groupIds: selected,
+          groupIds: selectedGroupIds,
           scheduledAt: scheduledIso,
           humanDelayMinSec: minDelay,
           humanDelayMaxSec: Math.max(minDelay, maxDelay),
@@ -106,7 +111,7 @@ export function TimingPage() {
         jobCount?: number
       }
       if (!res.ok) throw new Error(body.error || `שגיאה ${res.status}`)
-      setFlash(`הקמפיין הופעל — ${body.jobCount ?? selected.length} משימות בתור`)
+      setFlash(`הקמפיין הופעל — ${body.jobCount ?? selectedGroupIds.length} משימות בתור`)
       setContent('')
       void loadQueue()
     } catch (err) {
@@ -222,10 +227,12 @@ export function TimingPage() {
                 <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50">
                   <input
                     type="checkbox"
-                    checked={selected.includes(g.id)}
+                    checked={selectedGroupIds.includes(g.id)}
                     onChange={() =>
-                      setSelected((prev) =>
-                        prev.includes(g.id) ? prev.filter((x) => x !== g.id) : [...prev, g.id],
+                      setSelectedGroupIds(
+                        selectedGroupIds.includes(g.id)
+                          ? selectedGroupIds.filter((x) => x !== g.id)
+                          : [...selectedGroupIds, g.id],
                       )
                     }
                   />

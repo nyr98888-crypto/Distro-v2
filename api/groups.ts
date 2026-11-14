@@ -2,7 +2,7 @@
  * GET /api/groups — list synced groups for the authenticated user.
  */
 import { requireSession, setCors, type ApiReq, type ApiRes } from './lib/auth'
-import { getTurso, getUserSetting, listGroupsForUser } from './lib/turso'
+import { ensureSchema, getTurso, getUserSetting, listGroupsForUser } from './lib/turso'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {
@@ -16,6 +16,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     const client = getTurso()
     if (!client) {
       return res.status(200).json({
+        ok: true,
         groups: [],
         count: 0,
         lastSyncAt: null,
@@ -23,6 +24,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       })
     }
 
+    await ensureSchema(client)
     const groups = await listGroupsForUser(client, session.sub)
     const lastSyncAt =
       (await getUserSetting(client, session.sub, 'last_group_sync_at')) ||
@@ -30,6 +32,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       null
 
     return res.status(200).json({
+      ok: true,
       groups: groups.map((g) => ({
         id: g.id,
         fbGroupId: g.fbGroupId,
@@ -48,6 +51,12 @@ export default async function handler(req: ApiReq, res: ApiRes) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/groups]', message)
-    return res.status(200).json({ groups: [], count: 0, lastSyncAt: null, error: message })
+    return res.status(200).json({
+      ok: false,
+      groups: [],
+      count: 0,
+      lastSyncAt: null,
+      error: message,
+    })
   }
 }

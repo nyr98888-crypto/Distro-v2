@@ -1,6 +1,6 @@
 /**
- * Turso web client + Distro V2 schema helpers.
- * Always use `@libsql/client/web` on Vercel.
+ * Turso web client + Distro V2 schema (crash-proof init).
+ * Always `@libsql/client/web` — never native `@libsql/client`.
  */
 import { createClient, type Client } from '@libsql/client/web'
 import { readEnv, uid } from './auth'
@@ -43,7 +43,6 @@ export type QueueJob = {
 }
 
 let cached: Client | null = null
-let schemaReady = false
 
 export function getTurso(): Client | null {
   const url = readEnv('TURSO_DATABASE_URL')
@@ -53,13 +52,34 @@ export function getTurso(): Client | null {
   return cached
 }
 
+async function tryExec(client: Client, sql: string): Promise<void> {
+  try {
+    await client.execute(sql)
+  } catch {
+    /* ignore duplicate column / index / table */
+  }
+}
+
+/** Always safe to call — creates every table Distro needs on a fresh DB. */
 export async function ensureSchema(client: Client): Promise<void> {
-  if (schemaReady) return
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT,
+      name TEXT,
+      picture TEXT,
+      provider TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      last_login_at TEXT
+    )
+  `)
+
+  // Compatible with both fresh DBs and legacy installs (UNIQUE fb_group_id).
   await client.execute(`
     CREATE TABLE IF NOT EXISTS groups (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      fb_group_id TEXT NOT NULL,
+      fb_group_id TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       url TEXT NOT NULL DEFAULT '',
       member_count INTEGER NOT NULL DEFAULT 0,
@@ -68,25 +88,16 @@ export async function ensureSchema(client: Client): Promise<void> {
       synced_at TEXT
     )
   `)
-  // Legacy installs may lack user_id — add it safely.
-  try {
-    await client.execute(`ALTER TABLE groups ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    /* column already exists */
-  }
-  try {
-    await client.execute(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_user_fb ON groups(user_id, fb_group_id)`,
-    )
-  } catch {
-    /* older UNIQUE(fb_group_id) may still exist — upsert handles orphans */
-  }
+  await tryExec(client, `ALTER TABLE groups ADD COLUMN user_id TEXT DEFAULT ''`)
+  await tryExec(client, `ALTER TABLE groups ADD COLUMN collection_ids TEXT DEFAULT '[]'`)
+
   await client.execute(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )
   `)
+
   await client.execute(`
     CREATE TABLE IF NOT EXISTS campaigns (
       id TEXT PRIMARY KEY,
@@ -102,6 +113,33 @@ export async function ensureSchema(client: Client): Promise<void> {
       created_at TEXT NOT NULL
     )
   `)
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS scheduled_posts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      campaign_id TEXT,
+      group_id TEXT NOT NULL,
+      fb_group_id TEXT NOT NULL,
+      group_name TEXT NOT NULL DEFAULT '',
+      group_url TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      media_url TEXT,
+      scheduled_at TEXT NOT NULL,
+      human_delay_min_sec INTEGER NOT NULL DEFAULT 45,
+      human_delay_max_sec INTEGER NOT NULL DEFAULT 120,
+      urgent_window_minutes INTEGER NOT NULL DEFAULT 60,
+      status TEXT NOT NULL DEFAULT 'pending',
+      priority INTEGER NOT NULL DEFAULT 0,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      claimed_at TEXT,
+      published_at TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
+  // Keep queue_jobs as alias table name used by earlier code paths.
   await client.execute(`
     CREATE TABLE IF NOT EXISTS queue_jobs (
       id TEXT PRIMARY KEY,
@@ -126,10 +164,15 @@ export async function ensureSchema(client: Client): Promise<void> {
       created_at TEXT NOT NULL
     )
   `)
-  await client.execute(
+
+  await tryExec(
+    client,
     `CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON queue_jobs(user_id, status, scheduled_at)`,
   )
-  schemaReady = true
+  await tryExec(
+    client,
+    `CREATE INDEX IF NOT EXISTS idx_scheduled_user_status ON scheduled_posts(user_id, status, scheduled_at)`,
+  )
 }
 
 function settingKey(userId: string, key: string): string {
@@ -142,6 +185,7 @@ export async function setUserSetting(
   key: string,
   value: string,
 ): Promise<void> {
+  await ensureSchema(client)
   await client.execute({
     sql: `INSERT INTO settings (key, value) VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -154,6 +198,7 @@ export async function getUserSetting(
   userId: string,
   key: string,
 ): Promise<string | null> {
+  await ensureSchema(client)
   const r = await client.execute({
     sql: 'SELECT value FROM settings WHERE key = ?',
     args: [settingKey(userId, key)],
@@ -161,6 +206,39 @@ export async function getUserSetting(
   return r.rows[0] ? String(r.rows[0].value) : null
 }
 
+export async function upsertUser(
+  client: Client,
+  user: { id: string; email: string; name: string; picture?: string | null; provider?: string },
+): Promise<void> {
+  await ensureSchema(client)
+  const now = new Date().toISOString()
+  await client.execute({
+    sql: `INSERT INTO users (id, email, name, picture, provider, created_at, updated_at, last_login_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            email = excluded.email,
+            name = excluded.name,
+            picture = excluded.picture,
+            updated_at = excluded.updated_at,
+            last_login_at = excluded.last_login_at`,
+    args: [
+      user.id,
+      user.email,
+      user.name,
+      user.picture ?? null,
+      user.provider || 'google',
+      now,
+      now,
+      now,
+    ],
+  })
+}
+
+/**
+ * Upsert groups for v1.0.9 payload.
+ * Uses ON CONFLICT(fb_group_id) — matches legacy UNIQUE schema that caused 500s
+ * when we tried a composite unique / missing user_id column.
+ */
 export async function upsertGroupsForUser(
   client: Client,
   userId: string,
@@ -181,45 +259,48 @@ export async function upsertGroupsForUser(
     if (!fbGroupId) continue
     const name = String(g.name || fbGroupId).trim() || fbGroupId
     const url = g.url || `https://www.facebook.com/groups/${fbGroupId}`
-    const memberCount = Number(g.memberCount ?? 0)
+    const memberCount = Number.isFinite(Number(g.memberCount)) ? Number(g.memberCount) : 0
     const avatarUrl = g.avatarUrl ?? null
 
-    // Prefer owned row; else claim orphan/legacy row with same fb_group_id.
-    let existing = await client.execute({
-      sql: 'SELECT id, active FROM groups WHERE user_id = ? AND fb_group_id = ?',
-      args: [userId, fbGroupId],
+    const existing = await client.execute({
+      sql: 'SELECT id, active FROM groups WHERE fb_group_id = ? LIMIT 1',
+      args: [fbGroupId],
     })
-    if (!existing.rows[0]) {
-      existing = await client.execute({
-        sql: `SELECT id, active FROM groups
-              WHERE fb_group_id = ? AND (user_id = '' OR user_id IS NULL)
-              LIMIT 1`,
-        args: [fbGroupId],
-      })
-    }
-    if (!existing.rows[0]) {
-      existing = await client.execute({
-        sql: 'SELECT id, active FROM groups WHERE fb_group_id = ? LIMIT 1',
-        args: [fbGroupId],
-      })
-    }
-
     const id = existing.rows[0] ? String(existing.rows[0].id) : uid('g')
     const active = existing.rows[0] ? Number(existing.rows[0].active) === 1 : true
 
+    // Avoid ON CONFLICT(fb_group_id) — some DBs only have a composite unique index
+    // and that mismatch was causing HTTP 500 on Vercel.
     if (existing.rows[0]) {
-      await client.execute({
-        sql: `UPDATE groups
-              SET user_id = ?, name = ?, url = ?, member_count = ?, avatar_url = ?, synced_at = ?, active = ?
-              WHERE id = ?`,
-        args: [userId, name, url, memberCount, avatarUrl, syncedAt, active ? 1 : 0, id],
-      })
+      try {
+        await client.execute({
+          sql: `UPDATE groups
+                SET name = ?, url = ?, member_count = ?, avatar_url = ?, synced_at = ?, active = ?, user_id = ?
+                WHERE id = ?`,
+          args: [name, url, memberCount, avatarUrl, syncedAt, active ? 1 : 0, userId, id],
+        })
+      } catch {
+        await client.execute({
+          sql: `UPDATE groups
+                SET name = ?, url = ?, member_count = ?, avatar_url = ?, synced_at = ?, active = ?
+                WHERE id = ?`,
+          args: [name, url, memberCount, avatarUrl, syncedAt, active ? 1 : 0, id],
+        })
+      }
     } else {
-      await client.execute({
-        sql: `INSERT INTO groups (id, user_id, fb_group_id, name, url, member_count, avatar_url, active, synced_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        args: [id, userId, fbGroupId, name, url, memberCount, avatarUrl, syncedAt],
-      })
+      try {
+        await client.execute({
+          sql: `INSERT INTO groups (id, fb_group_id, name, url, member_count, avatar_url, active, synced_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, fbGroupId, name, url, memberCount, avatarUrl, 1, syncedAt, userId],
+        })
+      } catch {
+        await client.execute({
+          sql: `INSERT INTO groups (id, fb_group_id, name, url, member_count, avatar_url, active, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, fbGroupId, name, url, memberCount, avatarUrl, 1, syncedAt],
+        })
+      }
     }
 
     out.push({
@@ -236,29 +317,33 @@ export async function upsertGroupsForUser(
   }
 
   await setUserSetting(client, userId, 'last_group_sync_at', syncedAt)
-  if (groups.length > 0) {
-    // also keep legacy global key for older clients
-    await client.execute({
-      sql: `INSERT INTO settings (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      args: ['last_group_sync_at', syncedAt],
-    })
-  }
+  await client.execute({
+    sql: `INSERT INTO settings (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    args: ['last_group_sync_at', syncedAt],
+  })
 
   return out
 }
 
 export async function listGroupsForUser(client: Client, userId: string): Promise<GroupRow[]> {
   await ensureSchema(client)
-  const result = await client.execute({
-    sql: `SELECT * FROM groups
-          WHERE user_id = ? OR user_id = '' OR user_id IS NULL
-          ORDER BY name COLLATE NOCASE`,
-    args: [userId],
-  })
+  let result
+  try {
+    result = await client.execute({
+      sql: `SELECT * FROM groups
+            WHERE user_id = ? OR user_id = '' OR user_id IS NULL OR user_id = ?
+            ORDER BY name COLLATE NOCASE`,
+      args: [userId, userId],
+    })
+  } catch {
+    // Extremely old schema without user_id
+    result = await client.execute(`SELECT * FROM groups ORDER BY name COLLATE NOCASE`)
+  }
+
   return result.rows.map((row) => ({
     id: String(row.id),
-    userId: String(row.user_id ?? ''),
+    userId: row.user_id != null ? String(row.user_id) : '',
     fbGroupId: String(row.fb_group_id),
     name: String(row.name),
     url: String(row.url ?? ''),
@@ -273,7 +358,7 @@ function mapJob(row: Record<string, unknown>): QueueJob {
   return {
     id: String(row.id),
     userId: String(row.user_id),
-    campaignId: String(row.campaign_id),
+    campaignId: String(row.campaign_id ?? ''),
     groupId: String(row.group_id),
     fbGroupId: String(row.fb_group_id),
     groupName: String(row.group_name ?? ''),
@@ -305,9 +390,6 @@ export function isUrgentJob(
   return scheduled <= now || scheduled - now <= windowMs
 }
 
-/**
- * Pick next dispatchable job with 1-hour priority + human pacing lock.
- */
 export async function claimNextJob(
   client: Client,
   userId: string,
@@ -316,12 +398,10 @@ export async function claimNextJob(
   const now = Date.now()
   const nowIso = new Date(now).toISOString()
 
-  // Release stale claims (> 10 min)
   await client.execute({
     sql: `UPDATE queue_jobs SET status = 'pending', claimed_at = NULL
           WHERE user_id = ? AND status = 'claimed'
-            AND claimed_at IS NOT NULL
-            AND claimed_at < ?`,
+            AND claimed_at IS NOT NULL AND claimed_at < ?`,
     args: [userId, new Date(now - 10 * 60 * 1000).toISOString()],
   })
 
@@ -335,7 +415,6 @@ export async function claimNextJob(
   const jobs = pending.rows.map((r) => mapJob(r as unknown as Record<string, unknown>))
   if (jobs.length === 0) return { job: null, waitMs: 0, reason: 'empty' }
 
-  // Mark urgent flags
   for (const job of jobs) {
     if (isUrgentJob(job.scheduledAt, job.urgentWindowMinutes, now) && job.status !== 'urgent') {
       await client.execute({
@@ -353,22 +432,14 @@ export async function claimNextJob(
   const later = jobs
     .filter((j) => !isUrgentJob(j.scheduledAt, j.urgentWindowMinutes, now))
     .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))
-
-  const ordered = [...urgent, ...later]
-  const candidate = ordered[0]
+  const candidate = [...urgent, ...later][0]
   if (!candidate) return { job: null, waitMs: 0, reason: 'empty' }
 
-  // If not urgent and scheduled in the future, wait
   const scheduledMs = Date.parse(candidate.scheduledAt)
   if (!isUrgentJob(candidate.scheduledAt, candidate.urgentWindowMinutes, now) && scheduledMs > now) {
-    return {
-      job: null,
-      waitMs: Math.max(0, scheduledMs - now),
-      reason: 'not_due',
-    }
+    return { job: null, waitMs: Math.max(0, scheduledMs - now), reason: 'not_due' }
   }
 
-  // Human pacing lock
   const lastPublished = await getUserSetting(client, userId, 'last_published_at')
   if (lastPublished) {
     const lastMs = Date.parse(lastPublished)
@@ -377,11 +448,7 @@ export async function claimNextJob(
     const jitterSec = minSec + Math.floor(Math.random() * (maxSec - minSec + 1))
     const unlockAt = lastMs + jitterSec * 1000
     if (now < unlockAt) {
-      return {
-        job: null,
-        waitMs: unlockAt - now,
-        reason: 'human_pacing',
-      }
+      return { job: null, waitMs: unlockAt - now, reason: 'human_pacing' }
     }
   }
 

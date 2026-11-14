@@ -108,29 +108,43 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     const jobs = []
     for (const g of selected) {
       const jobId = uid('job')
+      const jobArgs = [
+        jobId,
+        session.sub,
+        campaignId,
+        g.id,
+        g.fbGroupId,
+        g.name,
+        g.url,
+        content,
+        mediaUrl,
+        scheduledAt,
+        humanDelayMinSec,
+        humanDelayMaxSec,
+        urgentWindowMinutes,
+        createdAt,
+      ]
       await client.execute({
         sql: `INSERT INTO queue_jobs
               (id, user_id, campaign_id, group_id, fb_group_id, group_name, group_url, content, media_url,
                scheduled_at, human_delay_min_sec, human_delay_max_sec, urgent_window_minutes,
                status, priority, attempts, created_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?)`,
-        args: [
-          jobId,
-          session.sub,
-          campaignId,
-          g.id,
-          g.fbGroupId,
-          g.name,
-          g.url,
-          content,
-          mediaUrl,
-          scheduledAt,
-          humanDelayMinSec,
-          humanDelayMaxSec,
-          urgentWindowMinutes,
-          createdAt,
-        ],
+        args: jobArgs,
       })
+      // Mirror into scheduled_posts (canonical name requested for Turso schema)
+      try {
+        await client.execute({
+          sql: `INSERT INTO scheduled_posts
+                (id, user_id, campaign_id, group_id, fb_group_id, group_name, group_url, content, media_url,
+                 scheduled_at, human_delay_min_sec, human_delay_max_sec, urgent_window_minutes,
+                 status, priority, attempts, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?)`,
+          args: jobArgs,
+        })
+      } catch {
+        /* table may not exist on older deploys — ensureSchema creates it */
+      }
       jobs.push(jobId)
     }
 

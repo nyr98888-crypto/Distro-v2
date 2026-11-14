@@ -1,2 +1,2 @@
-/** Alias: POST /api/groups/sync → same as v1.0.9 /api/sync-groups */
+/** Alias POST /api/groups/sync → same handler as v1.0.9 /api/sync-groups */
 export { default } from '../sync-groups'

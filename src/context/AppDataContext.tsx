@@ -19,13 +19,15 @@ import type {
 import { createBootstrap } from '../data/mock'
 import { appConfig } from '../lib/config'
 import { authHeaders, getStoredSessionToken } from '../lib/sessionStore'
-import { mergeGroups } from '../lib/groupPaste'
-
 const GROUPS_LS_KEY = 'distro_groups_cache'
 const SCHEDULES_LS_KEY = 'distro_schedules_cache'
 
 interface AppDataContextValue {
   data: AppBootstrap
+  selectedGroupIds: string[]
+  setSelectedGroupIds: (ids: string[]) => void
+  selectAllGroups: () => void
+  groupsLoading: boolean
   setSchedules: (schedules: ScheduledPost[]) => void
   upsertSchedule: (input: ScheduleInput) => void
   setScheduleStatus: (id: string, status: ScheduleStatus) => void
@@ -36,7 +38,7 @@ interface AppDataContextValue {
   addCollection: (name: string, color?: string) => void
   updateSettings: (patch: Partial<UserSettings>) => void
   refreshStats: () => void
-  refreshGroups: () => Promise<void>
+  refreshGroups: () => Promise<{ count: number; ok: boolean; error?: string }>
   syncGroupsToServer: (groups: FacebookGroup[]) => Promise<{ ok: boolean; count: number }>
 }
 
@@ -133,6 +135,8 @@ function initialBootstrap(): AppBootstrap {
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppBootstrap>(() => initialBootstrap())
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
 
   const applyGroups = useCallback((groups: FacebookGroup[], syncedAt?: string | null) => {
     writeCachedGroups(groups)
@@ -148,44 +152,60 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const selectAllGroups = useCallback(() => {
+    setSelectedGroupIds(data.groups.filter((g) => g.active).map((g) => g.id))
+  }, [data.groups])
+
   const refreshGroups = useCallback(async () => {
+    setGroupsLoading(true)
     try {
       const res = await fetch(appConfig.groupsUrl, {
         cache: 'no-store',
         credentials: 'include',
         headers: authHeaders(),
       })
-      if (!res.ok) return
-      const json = (await res.json()) as {
+      const json = (await res.json().catch(() => ({}))) as {
         groups?: FacebookGroup[]
+        count?: number
         lastSyncAt?: string | null
         lastGroupSyncAt?: string | null
+        error?: string
+        ok?: boolean
+      }
+      if (!res.ok && res.status === 401) {
+        return { count: 0, ok: false, error: 'unauthorized' }
       }
       const remote = Array.isArray(json.groups) ? json.groups : []
       const lastSync =
         json.lastSyncAt || json.lastGroupSyncAt || (remote[0]?.syncedAt ?? null)
       setData((prev) => {
-        const merged = remote.length > 0 ? mergeGroups(prev.groups, remote) : prev.groups
-        if (remote.length > 0) writeCachedGroups(merged)
+        const nextGroups = res.ok ? remote : prev.groups
+        writeCachedGroups(nextGroups)
         return refreshDerived({
           ...prev,
-          groups: merged,
+          groups: nextGroups,
           settings: {
             ...prev.settings,
-            lastGroupSyncAt: lastSync || prev.settings.lastGroupSyncAt,
-          },
-          connection: {
-            ...prev.connection,
-            lastGroupSyncAt: lastSync || prev.connection.lastGroupSyncAt,
-            extensionConnected:
-              Boolean(lastSync) ||
-              prev.connection.extensionConnected ||
-              remote.length > 0,
+            lastGroupSyncAt:
+              lastSync ||
+              (remote.length ? new Date().toISOString() : prev.settings.lastGroupSyncAt),
           },
         })
       })
-    } catch {
-      /* keep local cache */
+      setSelectedGroupIds((prev) => prev.filter((id) => remote.some((g) => g.id === id)))
+      return {
+        count: remote.length,
+        ok: Boolean(res.ok && json.ok !== false),
+        error: json.error,
+      }
+    } catch (err) {
+      return {
+        count: 0,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    } finally {
+      setGroupsLoading(false)
     }
   }, [])
 
@@ -361,6 +381,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       data,
+      selectedGroupIds,
+      setSelectedGroupIds,
+      selectAllGroups,
+      groupsLoading,
       setSchedules,
       upsertSchedule,
       setScheduleStatus,
@@ -376,6 +400,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }),
     [
       data,
+      selectedGroupIds,
+      selectAllGroups,
+      groupsLoading,
       setSchedules,
       upsertSchedule,
       setScheduleStatus,

@@ -2,13 +2,22 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { useAppData } from '../context/AppDataContext'
 import { useLanguage } from '../context/LanguageContext'
+import { connectAndAutoSyncExtension } from '../lib/extensionBridge'
 
-/** Automatic groups view — Turso/extension sync only (no paste / no demos). */
+/** Automatic groups view — Turso / extension sync (no paste, no demos). */
 export function GroupsPage() {
-  const { data, toggleGroupActive, refreshGroups } = useAppData()
+  const {
+    data,
+    toggleGroupActive,
+    refreshGroups,
+    selectedGroupIds,
+    setSelectedGroupIds,
+    selectAllGroups,
+    groupsLoading,
+  } = useAppData()
   const { t } = useLanguage()
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<string[]>([])
+  const [statusMsg, setStatusMsg] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -17,12 +26,38 @@ export function GroupsPage() {
     )
   }, [data.groups, query])
 
-  function selectAll() {
-    setSelected(filtered.map((g) => g.id))
+  async function onRefresh() {
+    setStatusMsg(null)
+    void connectAndAutoSyncExtension()
+    const result = await refreshGroups()
+    if (!result.ok) {
+      setStatusMsg(result.error || 'רענון נכשל')
+      return
+    }
+    setStatusMsg(
+      result.count > 0 ? `נטענו ${result.count} קבוצות` : 'אין קבוצות בשרת — סנכרנו מהתוסף',
+    )
+  }
+
+  function onSelectAll() {
+    if (filtered.length === 0) {
+      setStatusMsg('אין קבוצות לבחירה — לחצו רענון או סנכרנו מהתוסף')
+      return
+    }
+    const ids = filtered.map((g) => g.id)
+    setSelectedGroupIds(ids)
+    // Also select all active groups for the campaign composer
+    selectAllGroups()
+    setSelectedGroupIds(ids)
+    setStatusMsg(`נבחרו ${ids.length} קבוצות לקמפיין`)
   }
 
   function toggleSelect(id: string) {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+    setSelectedGroupIds(
+      selectedGroupIds.includes(id)
+        ? selectedGroupIds.filter((x) => x !== id)
+        : [...selectedGroupIds, id],
+    )
   }
 
   return (
@@ -35,18 +70,37 @@ export function GroupsPage() {
             {data.settings.lastGroupSyncAt
               ? new Date(data.settings.lastGroupSyncAt).toLocaleString()
               : t('never')}
-            {data.groups.length > 0 ? ` · ${data.groups.length}` : ''}
+            {` · ${data.groups.length} קבוצות`}
+            {selectedGroupIds.length > 0 ? ` · נבחרו ${selectedGroupIds.length}` : ''}
           </p>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="btn-secondary" onClick={() => void refreshGroups()}>
-            רענון
+          <button
+            type="button"
+            className="btn-secondary inline-flex items-center gap-2"
+            disabled={groupsLoading}
+            onClick={() => void onRefresh()}
+          >
+            {groupsLoading ? (
+              <>
+                <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+                טוען…
+              </>
+            ) : (
+              'רענון'
+            )}
           </button>
-          <button type="button" className="btn-primary" onClick={selectAll}>
+          <button type="button" className="btn-primary" onClick={onSelectAll}>
             בחר הכל
           </button>
         </div>
       </div>
+
+      {statusMsg && (
+        <div className="rounded-lg border border-line-soft bg-white px-4 py-2 text-sm text-slate-700">
+          {statusMsg}
+        </div>
+      )}
 
       <div className="card p-3">
         <input
@@ -61,7 +115,7 @@ export function GroupsPage() {
         <div className="card p-8 text-center text-sm text-slate-500">
           {t('noGroups')}
           <p className="mt-2 text-xs text-slate-400">
-            לחצו «משוך וסנכרן קבוצות» בתוסף v1.0.9 — הקבוצות יופיעו כאן אוטומטית.
+            לחצו «משוך וסנכרן קבוצות» בתוסף v1.0.9 ואז «רענון» כאן.
           </p>
         </div>
       ) : (
@@ -75,7 +129,7 @@ export function GroupsPage() {
                 <label className="flex min-h-touch items-center">
                   <input
                     type="checkbox"
-                    checked={selected.includes(g.id)}
+                    checked={selectedGroupIds.includes(g.id)}
                     onChange={() => toggleSelect(g.id)}
                   />
                 </label>
