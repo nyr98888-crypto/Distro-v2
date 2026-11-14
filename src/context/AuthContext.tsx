@@ -165,8 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       captureSessionFromUrl()
 
-      // Hash handoff from HTML bridge: /#auth=connected
-      if (window.location.hash.includes('auth=connected')) {
+      const params = new URLSearchParams(window.location.search)
+      const justConnected =
+        params.get('auth') === 'connected' || window.location.hash.includes('auth=connected')
+
+      if (justConnected) {
         try {
           sessionStorage.setItem(HANDSHAKE_FLAG, '1')
         } catch {
@@ -196,8 +199,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const ok = await handshakeExtension()
         setExtensionHandshakeOk(ok)
-      } else if (local) {
-        // Stay in the app with local session even if /api/auth/me is blocked by SW
+      } else if (local || justConnected) {
+        // Stay in the app with local session even if /api/auth/me fails
+        if (local) setUser(local)
         const ok = await handshakeExtension()
         setExtensionHandshakeOk(ok)
       } else if (!getStoredSessionToken()) {
@@ -214,18 +218,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (
-      params.get('session') ||
-      params.get('auth') === 'connected' ||
-      window.location.hash.includes('auth=connected')
-    ) {
-      try {
-        sessionStorage.setItem(HANDSHAKE_FLAG, '1')
-      } catch {
-        /* ignore */
-      }
-    }
     void refresh()
   }, [refresh])
 
