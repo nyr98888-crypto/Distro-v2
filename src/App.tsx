@@ -16,17 +16,12 @@ export default function App() {
   const hasLocalSession = Boolean(getStoredSessionToken())
   const isAuthenticated = Boolean(user) || hasLocalSession
 
-  if (loading && !isAuthenticated) {
-    return (
-      <div className="flex h-full items-center justify-center bg-warm-mist text-sm text-slate-500">
-        טוען…
-      </div>
-    )
-  }
-
+  // Never trap on a spinner — unauthenticated users always see Google (click #1).
   if (!isAuthenticated) {
     return <LoginPage />
   }
+
+  void loading
 
   return (
     <>

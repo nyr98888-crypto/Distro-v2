@@ -127,10 +127,13 @@ async function startGoogleOAuth(): Promise<void> {
 }
 
 async function fetchMeUser(): Promise<AuthUserView | null> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 4000)
   try {
     const res = await fetch('/api/auth/me', {
       credentials: 'include',
       cache: 'no-store',
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         ...authHeaders(),
@@ -148,16 +151,24 @@ async function fetchMeUser(): Promise<AuthUserView | null> {
     return null
   } catch {
     return null
+  } finally {
+    window.clearTimeout(timer)
   }
 }
 
 async function handshakeExtension(): Promise<boolean> {
-  const synced = await connectAndAutoSyncExtension()
-  if (synced) return true
-  const token = getStoredSessionToken()
-  if (!token) return false
-  const ok = await broadcastAuthToExtension(token, window.location.origin)
-  return ok
+  try {
+    const synced = await Promise.race([
+      connectAndAutoSyncExtension(),
+      new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 2000)),
+    ])
+    if (synced) return true
+    const token = getStoredSessionToken()
+    if (!token) return false
+    return broadcastAuthToExtension(token, window.location.origin)
+  } catch {
+    return false
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
