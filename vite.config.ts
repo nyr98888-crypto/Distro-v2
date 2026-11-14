@@ -50,14 +50,26 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
         navigateFallback: '/index.html',
-        // Never serve the SPA shell for API/OAuth navigations — otherwise
-        // login buttons appear to "do nothing" / /api/auth/me returns HTML.
-        navigateFallbackDenylist: [/^\/api\//],
+        // Never SPA-fallback API or hashed build assets (stale SW was returning
+        // text/html for missing /assets/*.js → blank page MIME error).
+        navigateFallbackDenylist: [/^\/api\//, /^\/assets\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
             handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/assets/'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'distro-assets',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            },
           },
         ],
       },
