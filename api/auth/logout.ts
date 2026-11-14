@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { clearSessionOnResponse } from '../lib/session'
-import { env } from '../env'
+import { clearSessionOnResponse } from '../lib/session.js'
+import { env } from '../env.js'
 
 /** POST/GET /api/auth/logout */
 export default async function handler(req: VercelRequest, res: VercelResponse) {

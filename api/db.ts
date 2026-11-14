@@ -1,7 +1,7 @@
 // Use the web/HTTP client — avoids native libsql binaries that crash Vercel serverless.
 import { createClient, type Client } from '@libsql/client/web'
-import { env } from './env'
-import { decryptToken, encryptToken } from './lib/crypto'
+import { env } from './env.js'
+import { decryptToken, encryptToken } from './lib/crypto.js'
 import type {
   AuthUser,
   FacebookGroup,
@@ -16,7 +16,7 @@ import type {
   ScheduleInput,
   DashboardStats,
   ConnectionStatus,
-} from '../shared/types'
+} from '../shared/types.js'
 
 type MemoryStore = {
   groups: Map<string, FacebookGroup>

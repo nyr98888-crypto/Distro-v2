@@ -14,8 +14,8 @@ import {
   setCors,
   type ApiReq,
   type ApiRes,
-} from '../lib/auth'
-import { claimNextJob, getTurso, isUrgentJob } from '../lib/turso'
+} from '../lib/auth.js'
+import { claimNextJob, getTurso, isUrgentJob } from '../lib/turso.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {

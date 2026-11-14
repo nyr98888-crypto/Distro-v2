@@ -3,7 +3,7 @@
  * Always `@libsql/client/web` — never native `@libsql/client`.
  */
 import { createClient, type Client } from '@libsql/client/web'
-import { readEnv, uid } from './auth'
+import { readEnv, uid } from './auth.js'
 
 export type GroupRow = {
   id: string

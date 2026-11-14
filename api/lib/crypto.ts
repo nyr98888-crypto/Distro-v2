@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { env, assertAuthSecret, assertEncryptionKey } from '../env'
+import { env, assertAuthSecret, assertEncryptionKey } from '../env.js'
 
 const ALGO = 'aes-256-gcm'
 

@@ -9,8 +9,8 @@ import {
   uid,
   type ApiReq,
   type ApiRes,
-} from './lib/auth'
-import { ensureSchema, getTurso, listGroupsForUser } from './lib/turso'
+} from './lib/auth.js'
+import { ensureSchema, getTurso, listGroupsForUser } from './lib/turso.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {

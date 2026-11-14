@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { assertAuthSecret, env } from '../env'
+import { assertAuthSecret, env } from '../env.js'
 
 export const SESSION_COOKIE = 'distro_session'
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days

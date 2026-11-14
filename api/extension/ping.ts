@@ -9,8 +9,8 @@ import {
   setCors,
   type ApiReq,
   type ApiRes,
-} from '../lib/auth'
-import { ensureSchema, getTurso, setUserSetting } from '../lib/turso'
+} from '../lib/auth.js'
+import { ensureSchema, getTurso, setUserSetting } from '../lib/turso.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {
