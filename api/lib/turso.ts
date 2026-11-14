@@ -68,9 +68,19 @@ export async function ensureSchema(client: Client): Promise<void> {
       synced_at TEXT
     )
   `)
-  await client.execute(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_user_fb ON groups(user_id, fb_group_id)`,
-  )
+  // Legacy installs may lack user_id — add it safely.
+  try {
+    await client.execute(`ALTER TABLE groups ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await client.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_user_fb ON groups(user_id, fb_group_id)`,
+    )
+  } catch {
+    /* older UNIQUE(fb_group_id) may still exist — upsert handles orphans */
+  }
   await client.execute(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -169,22 +179,40 @@ export async function upsertGroupsForUser(
   for (const g of groups) {
     const fbGroupId = String(g.fbGroupId || '').trim()
     if (!fbGroupId) continue
-    const existing = await client.execute({
-      sql: 'SELECT id, active FROM groups WHERE user_id = ? AND fb_group_id = ?',
-      args: [userId, fbGroupId],
-    })
-    const id = existing.rows[0] ? String(existing.rows[0].id) : uid('g')
-    const active = existing.rows[0] ? Number(existing.rows[0].active) === 1 : true
     const name = String(g.name || fbGroupId).trim() || fbGroupId
     const url = g.url || `https://www.facebook.com/groups/${fbGroupId}`
     const memberCount = Number(g.memberCount ?? 0)
     const avatarUrl = g.avatarUrl ?? null
 
+    // Prefer owned row; else claim orphan/legacy row with same fb_group_id.
+    let existing = await client.execute({
+      sql: 'SELECT id, active FROM groups WHERE user_id = ? AND fb_group_id = ?',
+      args: [userId, fbGroupId],
+    })
+    if (!existing.rows[0]) {
+      existing = await client.execute({
+        sql: `SELECT id, active FROM groups
+              WHERE fb_group_id = ? AND (user_id = '' OR user_id IS NULL)
+              LIMIT 1`,
+        args: [fbGroupId],
+      })
+    }
+    if (!existing.rows[0]) {
+      existing = await client.execute({
+        sql: 'SELECT id, active FROM groups WHERE fb_group_id = ? LIMIT 1',
+        args: [fbGroupId],
+      })
+    }
+
+    const id = existing.rows[0] ? String(existing.rows[0].id) : uid('g')
+    const active = existing.rows[0] ? Number(existing.rows[0].active) === 1 : true
+
     if (existing.rows[0]) {
       await client.execute({
-        sql: `UPDATE groups SET name = ?, url = ?, member_count = ?, avatar_url = ?, synced_at = ?
-              WHERE user_id = ? AND fb_group_id = ?`,
-        args: [name, url, memberCount, avatarUrl, syncedAt, userId, fbGroupId],
+        sql: `UPDATE groups
+              SET user_id = ?, name = ?, url = ?, member_count = ?, avatar_url = ?, synced_at = ?, active = ?
+              WHERE id = ?`,
+        args: [userId, name, url, memberCount, avatarUrl, syncedAt, active ? 1 : 0, id],
       })
     } else {
       await client.execute({
@@ -223,7 +251,9 @@ export async function upsertGroupsForUser(
 export async function listGroupsForUser(client: Client, userId: string): Promise<GroupRow[]> {
   await ensureSchema(client)
   const result = await client.execute({
-    sql: `SELECT * FROM groups WHERE user_id = ? OR user_id = '' ORDER BY name COLLATE NOCASE`,
+    sql: `SELECT * FROM groups
+          WHERE user_id = ? OR user_id = '' OR user_id IS NULL
+          ORDER BY name COLLATE NOCASE`,
     args: [userId],
   })
   return result.rows.map((row) => ({
