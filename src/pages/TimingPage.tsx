@@ -123,7 +123,7 @@ export function TimingPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t('greeting')}</h1>
         <p className="mt-1 text-sm text-slate-500">
-          בחר הכל → הפעל פרסום · עדיפות אוטומטית בטווח של שעה
+          בחרו קבוצות → כתבו פוסט → הפעל פרסום. ההשהיות בין קבוצות מדמות אדם (לא ספאם).
         </p>
       </div>
 
@@ -136,21 +136,27 @@ export function TimingPage() {
       <section className="card space-y-4 p-5">
         <h2 className="text-base font-semibold">תוכן הפרסום</h2>
         <textarea
+          id="campaign-content"
+          name="campaignContent"
           className="input min-h-28 resize-y"
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="כתבו כאן את הטקסט שיפורסם לקבוצות…"
         />
         <input
+          id="campaign-media"
+          name="campaignMedia"
           className="input"
           value={mediaUrl}
           onChange={(e) => setMediaUrl(e.target.value)}
           placeholder="קישור מדיה (אופציונלי)"
           dir="ltr"
         />
-        <label className="block space-y-1 text-sm">
+        <label className="block space-y-1 text-sm" htmlFor="campaign-when">
           <span className="font-medium text-slate-700">תאריך ושעה</span>
           <input
+            id="campaign-when"
+            name="campaignWhen"
             className="input"
             type="datetime-local"
             value={scheduledAt}
@@ -158,9 +164,11 @@ export function TimingPage() {
           />
         </label>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <label className="block space-y-1 text-sm">
+          <label className="block space-y-1 text-sm" htmlFor="delay-min">
             <span className="font-medium text-slate-700">השהיה מינ׳ (שניות)</span>
             <input
+              id="delay-min"
+              name="delayMin"
               className="input"
               type="number"
               min={0}
@@ -168,9 +176,11 @@ export function TimingPage() {
               onChange={(e) => setMinDelay(Number(e.target.value))}
             />
           </label>
-          <label className="block space-y-1 text-sm">
+          <label className="block space-y-1 text-sm" htmlFor="delay-max">
             <span className="font-medium text-slate-700">השהיה מקס׳ (שניות)</span>
             <input
+              id="delay-max"
+              name="delayMax"
               className="input"
               type="number"
               min={0}
@@ -178,9 +188,11 @@ export function TimingPage() {
               onChange={(e) => setMaxDelay(Number(e.target.value))}
             />
           </label>
-          <label className="block space-y-1 text-sm">
+          <label className="block space-y-1 text-sm" htmlFor="urgent-window">
             <span className="font-medium text-slate-700">חלון דחיפות (דק׳)</span>
             <input
+              id="urgent-window"
+              name="urgentWindow"
               className="input"
               type="number"
               min={1}
@@ -189,8 +201,10 @@ export function TimingPage() {
             />
           </label>
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-slate-700" htmlFor="auto-priority">
           <input
+            id="auto-priority"
+            name="autoPriority"
             type="checkbox"
             checked={autoPrioritize}
             onChange={(e) => setAutoPrioritize(e.target.checked)}

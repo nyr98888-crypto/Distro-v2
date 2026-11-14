@@ -88,7 +88,7 @@ export function SettingsPage() {
           </span>
         </div>
         <p className="text-sm text-slate-600">
-          אחרי Google אין לחיצות חיבור נוספות — התוסף והקבוצות רצים לבד ברקע. אחר כך רק «בחר הכל»
+          אחרי Google התוסף מתחבר לבד. משיכת קבוצות: כפתור «משוך וסנכרן» בתוסף → רענון בקבוצות → בחר הכל → תזמונים
           ו«הפעל פרסום».
         </p>
         <div className="text-sm text-slate-600">

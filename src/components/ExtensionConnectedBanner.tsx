@@ -22,7 +22,7 @@ export function ExtensionConnectedBanner() {
         role="status"
         className="w-full max-w-md rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-modal"
       >
-        מחובר — הקבוצות נמשכות אוטומטית ברקע
+        מחובר לתוסף — לחצו «משוך וסנכרן» בתוסף ואז רענון בקבוצות
       </div>
     </div>
   )

@@ -12,7 +12,6 @@ export function GroupsPage() {
     refreshGroups,
     selectedGroupIds,
     setSelectedGroupIds,
-    selectAllGroups,
     groupsLoading,
   } = useAppData()
   const { t } = useLanguage()
@@ -40,16 +39,14 @@ export function GroupsPage() {
   }
 
   function onSelectAll() {
-    if (filtered.length === 0) {
-      setStatusMsg('אין קבוצות לבחירה — לחצו רענון או סנכרנו מהתוסף')
+    const pool = filtered.length > 0 ? filtered : data.groups.filter((g) => g.active)
+    if (pool.length === 0) {
+      setStatusMsg('אין קבוצות לבחירה — סנכרנו מהתוסף ואז רענון')
       return
     }
-    const ids = filtered.map((g) => g.id)
+    const ids = pool.map((g) => g.id)
     setSelectedGroupIds(ids)
-    // Also select all active groups for the campaign composer
-    selectAllGroups()
-    setSelectedGroupIds(ids)
-    setStatusMsg(`נבחרו ${ids.length} קבוצות לקמפיין`)
+    setStatusMsg(`נבחרו ${ids.length} קבוצות — עברו ל«תזמונים» לפרסום`)
   }
 
   function toggleSelect(id: string) {
@@ -66,6 +63,9 @@ export function GroupsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t('groups')}</h1>
           <p className="mt-1 text-sm text-slate-500">
+            1) תוסף Distro 1.0.9 → «משוך וסנכרן» · 2) רענון כאן · 3) בחר הכל → תזמונים
+          </p>
+          <p className="mt-0.5 text-xs text-slate-400">
             {t('lastSync')}:{' '}
             {data.settings.lastGroupSyncAt
               ? new Date(data.settings.lastGroupSyncAt).toLocaleString()
@@ -104,6 +104,8 @@ export function GroupsPage() {
 
       <div className="card p-3">
         <input
+          id="groups-search"
+          name="groupsSearch"
           className="input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
