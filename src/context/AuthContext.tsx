@@ -29,7 +29,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const HANDSHAKE_FLAG = 'distro_ext_handshake'
+export const HANDSHAKE_FLAG = 'distro_ext_handshake'
 
 function extractErrorMessage(body: string): string | null {
   const text = body.trim()
@@ -104,6 +104,17 @@ async function startGoogleOAuth(): Promise<void> {
   window.location.assign(redirectTo)
 }
 
+async function fetchMeUser(): Promise<AuthUserView | null> {
+  const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' })
+  if (!res.ok) return null
+  const json = (await res.json()) as {
+    authenticated?: boolean
+    user?: AuthUserView
+  }
+  if (json.authenticated && json.user) return json.user
+  return null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [loading, setLoading] = useState(true)
@@ -111,17 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' })
-      if (!res.ok) {
-        setUser(null)
-        return
+      // Retry once — cookie may land a tick after OAuth redirect.
+      let next = await fetchMeUser()
+      if (!next) {
+        await new Promise((r) => setTimeout(r, 250))
+        next = await fetchMeUser()
       }
-      const json = (await res.json()) as {
-        authenticated?: boolean
-        user?: AuthUserView
-      }
-      if (json.authenticated && json.user) {
-        setUser(json.user)
+      if (next) {
+        setUser(next)
         const ok = await syncSessionToExtension()
         setExtensionHandshakeOk(ok)
       } else {
@@ -142,15 +150,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('auth') === 'connected') {
+    const auth = params.get('auth')
+    if (auth === 'connected') {
       try {
         sessionStorage.setItem(HANDSHAKE_FLAG, '1')
       } catch {
         /* ignore */
       }
-      void refresh().then(async () => {
-        const ok = await syncSessionToExtension()
-        setExtensionHandshakeOk(ok)
+      setLoading(true)
+      void refresh().finally(() => {
         window.history.replaceState({}, '', window.location.pathname)
       })
     }

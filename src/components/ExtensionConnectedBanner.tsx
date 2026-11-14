@@ -43,7 +43,7 @@ export function ExtensionConnectedBanner() {
               מותקן ופעיל, ואז לחצו &quot;סנכרון מחדש&quot; בהגדרות.
             </>
           ) : (
-            <>מחובר בהצלחה — התוסף מוכן לשימוש</>
+            <>מחובר בהצלחה — התוסף v1.0.9 סונכרן</>
           )}
           <div className="mt-1 text-xs opacity-80">DISTRO Smart Group Campaign Manager · v1.0.9</div>
         </div>
