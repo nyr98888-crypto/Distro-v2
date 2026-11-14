@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
-import { syncSessionToExtension } from '../lib/extensionBridge'
+import { connectAndAutoSyncExtension } from '../lib/extensionBridge'
 import type { LocaleCode } from '../i18n/translations'
 
-export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void }) {
+export function SettingsPage() {
   const { data, updateSettings } = useAppData()
   const { t, locale, setLocale } = useLanguage()
   const { user, logout, loginWithGoogle, extensionHandshakeOk } = useAuth()
   const [minDelay, setMinDelay] = useState(data.settings.minDelaySeconds)
   const [maxDelay, setMaxDelay] = useState(data.settings.maxDelaySeconds)
   const [dailyLimit, setDailyLimit] = useState(data.settings.dailyPostLimit)
-  const [extSyncOk, setExtSyncOk] = useState(false)
+
+  // Silent background reconnect — no manual sync button.
+  useEffect(() => {
+    void connectAndAutoSyncExtension()
+  }, [])
 
   function savePacing() {
     updateSettings({
@@ -27,20 +31,9 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
     updateSettings({ locale: next })
   }
 
-  async function resyncExtension() {
-    const ok = await syncSessionToExtension()
-    setExtSyncOk(ok)
-    window.setTimeout(() => setExtSyncOk(false), 2000)
-  }
-
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('settings')}</h1>
-        <button type="button" className="btn-secondary" onClick={onOpenSetupGuide}>
-          {t('setupGuide')}
-        </button>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">{t('settings')}</h1>
 
       <section className="card space-y-4 p-5">
         <div className="flex items-center justify-between gap-3">
@@ -94,9 +87,8 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
             {extensionHandshakeOk ? t('autoConnected') : t('waitingConnection')}
           </span>
         </div>
-        <p className="text-sm text-slate-600">{t('extensionAutoHint')}</p>
         <p className="text-sm text-slate-600">
-          פרסום לקבוצות נעשה דרך סשן Facebook בדפדפן (Chrome) — לא דרך Meta Graph API.
+          החיבור והסנכרון עם התוסף רצים אוטומטית אחרי התחברות Google — אין צורך בלחיצות נוספות.
         </p>
         <div className="text-sm text-slate-600">
           {t('lastSync')}:{' '}
@@ -104,9 +96,6 @@ export function SettingsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => voi
             ? new Date(data.settings.lastGroupSyncAt).toLocaleString()
             : t('never')}
         </div>
-        <button type="button" className="btn-secondary" onClick={() => void resyncExtension()}>
-          {extSyncOk ? 'מחובר בהצלחה — התוסף מוכן לשימוש' : t('resyncExtension')}
-        </button>
       </section>
 
       <section className="card space-y-4 p-5">

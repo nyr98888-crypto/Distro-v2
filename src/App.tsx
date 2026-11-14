@@ -1,43 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { AppShell, type AppTab } from './components/layout/AppShell'
-import {
-  OnboardingWizard,
-  markOnboardingSkipped,
-} from './components/OnboardingWizard'
 import { TimingPage } from './pages/TimingPage'
 import { GroupsPage } from './pages/GroupsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
 import { ExtensionConnectedBanner } from './components/ExtensionConnectedBanner'
 import { useAuth } from './context/AuthContext'
-import { useAppData } from './context/AppDataContext'
 import { getStoredSessionToken } from './lib/sessionStore'
 
-/**
- * Main Distro V2 interface (Timing + Groups + Settings).
- * Onboarding never auto-opens when the user is signed in or the extension is detected.
- */
+/** Main Distro V2 UI — Google sign-in only; extension AUTH+SYNC is fully automatic. */
 export default function App() {
   const { user, loading } = useAuth()
-  const { data } = useAppData()
   const [tab, setTab] = useState<AppTab>('timing')
-  const [wizardOpen, setWizardOpen] = useState(false)
 
   const hasLocalSession = Boolean(getStoredSessionToken())
   const isAuthenticated = Boolean(user) || hasLocalSession
-  const extensionReady =
-    data.connection.extensionConnected || Boolean(data.settings.lastGroupSyncAt)
-
-  // Permanently skip blocking onboarding once signed in or extension is connected.
-  useEffect(() => {
-    if (!isAuthenticated && !extensionReady) return
-    markOnboardingSkipped()
-  }, [isAuthenticated, extensionReady])
-
-  function openSetupGuide() {
-    // Manual only — never traps the user after login / extension connect.
-    setWizardOpen(true)
-  }
 
   if (loading && !isAuthenticated) {
     return (
@@ -54,20 +31,11 @@ export default function App() {
   return (
     <>
       <ExtensionConnectedBanner />
-      <AppShell tab={tab} onTabChange={setTab} onOpenSetupGuide={openSetupGuide}>
+      <AppShell tab={tab} onTabChange={setTab}>
         {tab === 'timing' && <TimingPage />}
-        {tab === 'groups' && <GroupsPage onOpenSetupGuide={openSetupGuide} />}
-        {tab === 'settings' && <SettingsPage onOpenSetupGuide={openSetupGuide} />}
+        {tab === 'groups' && <GroupsPage />}
+        {tab === 'settings' && <SettingsPage />}
       </AppShell>
-
-      <OnboardingWizard
-        open={wizardOpen}
-        onClose={(opts) => {
-          setWizardOpen(false)
-          markOnboardingSkipped()
-          if (opts?.goToGroups) setTab('groups')
-        }}
-      />
     </>
   )
 }

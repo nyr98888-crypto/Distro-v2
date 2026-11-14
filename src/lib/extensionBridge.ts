@@ -1,13 +1,17 @@
 /**
  * Web ↔ Distro Chrome Extension (v1.0.9) bridge.
+ * READ-ONLY contract (do not change extension files):
  *
- * v1.0.9 listens for (read-only contract — do not change extension):
+ * Listens (background + web-bridge):
  *   { type: 'DISTRO_AUTH_SYNC', token: string, apiUrl: string }
- * via chrome.runtime.onMessageExternal + web-bridge postMessage
- *   { source: 'distro-web', type: 'DISTRO_AUTH_SYNC', token, apiUrl }
+ *   { type: 'DISTRO_PING' } / { action: 'PING' }
+ *
+ * web-bridge.js also forwards any other { source: 'distro-web', … } message
+ * to the service worker. We emit SYNC_GROUPS / DISTRO_SYNC_GROUPS so a
+ * future/patched SW can pull groups with zero clicks; v1.0.9 popup scrape
+ * remains the scrape engine until then.
  */
 
-/** Chrome Web Store ID for DISTRO - Smart Group Campaign Manager v1.0.9 */
 const STORE_EXTENSION_ID = 'oogolchahhanackcmgicnnokaaehmkaj'
 
 function readEnvExtensionId(): string {
@@ -15,7 +19,6 @@ function readEnvExtensionId(): string {
   if (typeof vite === 'string' && /^[a-p]{32}$/i.test(vite.trim())) {
     return vite.trim()
   }
-  // Also accept NEXT_PUBLIC_* if ever injected into the Vite define/env
   const next = (import.meta.env as Record<string, unknown>).NEXT_PUBLIC_EXTENSION_ID
   if (typeof next === 'string' && /^[a-p]{32}$/i.test(next.trim())) {
     return next.trim()
@@ -23,7 +26,6 @@ function readEnvExtensionId(): string {
   return STORE_EXTENSION_ID
 }
 
-/** Resolved production / env override extension ID. */
 export const DISTRO_EXTENSION_ID = readEnvExtensionId()
 
 export type DistroAuthSyncPayload = {
@@ -47,6 +49,40 @@ declare global {
   }
 }
 
+function postToBridge(message: Record<string, unknown>): void {
+  try {
+    window.postMessage({ source: 'distro-web', ...message }, window.location.origin)
+  } catch {
+    /* ignore */
+  }
+}
+
+function sendExternal(message: unknown): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      if (!window.chrome?.runtime?.sendMessage) {
+        resolve(false)
+        return
+      }
+      window.chrome.runtime.sendMessage(DISTRO_EXTENSION_ID, message, (response) => {
+        const err = window.chrome?.runtime?.lastError
+        if (err) {
+          resolve(false)
+          return
+        }
+        resolve(
+          Boolean(
+            response && typeof response === 'object' && (response as { ok?: boolean }).ok,
+          ),
+        )
+      })
+      window.setTimeout(() => resolve(false), 1200)
+    } catch {
+      resolve(false)
+    }
+  })
+}
+
 export function isExtensionBridgePresent(): boolean {
   try {
     return document.documentElement.getAttribute('data-distro-extension') === '1'
@@ -55,21 +91,13 @@ export function isExtensionBridgePresent(): boolean {
   }
 }
 
-/**
- * Push the logged-in session token to the Distro extension (v1.0.9 format).
- * Returns true when the extension acknowledges `{ ok: true }`, or when the
- * content-script bridge attribute is present after postMessage fallback.
- */
-export function broadcastAuthToExtension(
-  token: string,
-  apiUrl: string,
-): Promise<boolean> {
+/** Push session token to v1.0.9 (DISTRO_AUTH_SYNC). */
+export function broadcastAuthToExtension(token: string, apiUrl: string): Promise<boolean> {
   const payload: DistroAuthSyncPayload = {
     type: 'DISTRO_AUTH_SYNC',
     token,
     apiUrl: apiUrl.replace(/\/$/, ''),
   }
-  const extensionId = DISTRO_EXTENSION_ID
 
   return new Promise((resolve) => {
     let settled = false
@@ -79,42 +107,33 @@ export function broadcastAuthToExtension(
       resolve(ok)
     }
 
-    // Fallback path: web-bridge.js on distrov2-teal forwards to the SW
-    try {
-      window.postMessage({ source: 'distro-web', ...payload }, window.location.origin)
-    } catch {
-      /* ignore */
-    }
+    postToBridge(payload)
 
-    // Primary path: externally_connectable → onMessageExternal
-    try {
-      if (!window.chrome?.runtime?.sendMessage) {
-        window.setTimeout(() => finish(isExtensionBridgePresent()), 400)
-        return
-      }
-      window.chrome.runtime.sendMessage(extensionId, payload, (response) => {
-        const err = window.chrome?.runtime?.lastError
-        if (err) {
-          console.warn('[Distro] extension sendMessage error', err.message, {
-            extensionId,
-          })
-          // Bridge may still have received postMessage
-          window.setTimeout(() => finish(isExtensionBridgePresent()), 350)
-          return
-        }
-        const ok =
-          Boolean(response && typeof response === 'object' && (response as { ok?: boolean }).ok) ||
-          isExtensionBridgePresent()
-        finish(ok)
-      })
-    } catch (err) {
-      console.warn('[Distro] extension handshake failed', err)
-      window.setTimeout(() => finish(isExtensionBridgePresent()), 350)
-    }
+    void sendExternal(payload).then((ok) => {
+      if (ok) finish(true)
+      else window.setTimeout(() => finish(isExtensionBridgePresent()), 350)
+    })
 
-    // Safety timeout
     window.setTimeout(() => finish(isExtensionBridgePresent()), 1500)
   })
+}
+
+/**
+ * Ask the extension to pull Facebook groups (zero UI clicks).
+ * Emits every known alias; web-bridge forwards to the SW.
+ */
+export function requestExtensionGroupSync(token?: string, apiUrl?: string): void {
+  const base = (apiUrl || window.location.origin).replace(/\/$/, '')
+  const variants: Record<string, unknown>[] = [
+    { type: 'DISTRO_SYNC_GROUPS', token, apiUrl: base },
+    { type: 'SYNC_GROUPS', token, apiUrl: base },
+    { action: 'SYNC_GROUPS', token, apiUrl: base },
+    { type: 'DISTRO_PULL_GROUPS', token, apiUrl: base },
+  ]
+  for (const msg of variants) {
+    postToBridge(msg)
+    void sendExternal(msg)
+  }
 }
 
 export async function fetchExtensionToken(): Promise<{ token: string; apiUrl: string } | null> {
@@ -137,7 +156,6 @@ export async function fetchExtensionToken(): Promise<{ token: string; apiUrl: st
         }
       }
     }
-    // Fallback: hand the same signed session token the web app already has
     const local = getStoredSessionToken()
     if (local) return { token: local, apiUrl: origin }
     return null
@@ -153,9 +171,62 @@ export async function fetchExtensionToken(): Promise<{ token: string; apiUrl: st
   }
 }
 
-/** Fetch token and auto-sync to the v1.0.9 extension (call after Google login). */
+/** Auth handshake only. */
 export async function syncSessionToExtension(): Promise<boolean> {
   const data = await fetchExtensionToken()
   if (!data) return false
   return broadcastAuthToExtension(data.token, data.apiUrl)
+}
+
+/**
+ * One-shot after Google sign-in: AUTH + SYNC_GROUPS trigger + groups poll hook.
+ * Returns true when AUTH was acknowledged / bridge present.
+ */
+export async function connectAndAutoSyncExtension(): Promise<boolean> {
+  const data = await fetchExtensionToken()
+  if (!data) return false
+
+  const ok = await broadcastAuthToExtension(data.token, data.apiUrl)
+  // Fire immediately and again shortly (bridge may load after OAuth redirect).
+  requestExtensionGroupSync(data.token, data.apiUrl)
+  window.setTimeout(() => requestExtensionGroupSync(data.token, data.apiUrl), 800)
+  window.setTimeout(() => requestExtensionGroupSync(data.token, data.apiUrl), 2500)
+  return ok || isExtensionBridgePresent()
+}
+
+/**
+ * Keep AUTH+SYNC alive: on bridge ready, focus, and periodic retry while signed in.
+ * Returns a cleanup function.
+ */
+export function startAutoExtensionLoop(onSynced?: () => void): () => void {
+  let cancelled = false
+
+  const run = async () => {
+    if (cancelled) return
+    const ok = await connectAndAutoSyncExtension()
+    if (ok) onSynced?.()
+  }
+
+  void run()
+
+  const onMessage = (event: MessageEvent) => {
+    if (event.source !== window) return
+    const data = event.data
+    if (!data || data.source !== 'distro-extension') return
+    if (data.type === 'DISTRO_EXTENSION_READY') {
+      void run()
+    }
+  }
+
+  const onFocus = () => void run()
+  window.addEventListener('message', onMessage)
+  window.addEventListener('focus', onFocus)
+  const interval = window.setInterval(() => void run(), 15000)
+
+  return () => {
+    cancelled = true
+    window.removeEventListener('message', onMessage)
+    window.removeEventListener('focus', onFocus)
+    window.clearInterval(interval)
+  }
 }

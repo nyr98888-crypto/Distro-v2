@@ -217,7 +217,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   // Load + poll groups so extension sync appears without full page reload.
   useEffect(() => {
     void refreshGroups()
-    const id = window.setInterval(() => void refreshGroups(), 4000)
+    // Fast poll so extension-synced groups appear on the main screen without reload.
+    const id = window.setInterval(() => void refreshGroups(), 2500)
     const onFocus = () => void refreshGroups()
     const onStorage = (e: StorageEvent) => {
       if (e.key === GROUPS_LS_KEY) void refreshGroups()

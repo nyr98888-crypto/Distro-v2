@@ -5,22 +5,16 @@ import { useAppData } from '../context/AppDataContext'
 import { useLanguage } from '../context/LanguageContext'
 import { mergeGroups, parseFacebookGroupsFromText } from '../lib/groupPaste'
 
-export function GroupsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void }) {
-  const {
-    data,
-    toggleGroupActive,
-    addCollection,
-    refreshGroups,
-    syncGroupsToServer,
-  } = useAppData()
+export function GroupsPage() {
+  const { data, toggleGroupActive, addCollection, refreshGroups, syncGroupsToServer } =
+    useAppData()
   const { t } = useLanguage()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
-  const [guideOpen, setGuideOpen] = useState(false)
   const [collectionOpen, setCollectionOpen] = useState(false)
   const [collectionName, setCollectionName] = useState('')
 
-  const [pasteOpen, setPasteOpen] = useState(true)
+  const [pasteOpen, setPasteOpen] = useState(data.groups.length === 0)
   const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<FacebookGroup[]>([])
   const [pasteSelected, setPasteSelected] = useState<string[]>([])
@@ -92,29 +86,15 @@ export function GroupsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void 
             {data.settings.lastGroupSyncAt
               ? new Date(data.settings.lastGroupSyncAt).toLocaleString()
               : t('never')}
+            {data.groups.length > 0 ? ` · ${data.groups.length} קבוצות` : ''}
           </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button type="button" className="btn-secondary" onClick={onOpenSetupGuide}>
-            {t('setupGuide')}
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => void refreshGroups()}
-          >
-            רענון
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setGuideOpen(true)}>
-            {t('syncViaExtension')}
-          </button>
-          <button type="button" className="btn-primary" onClick={() => setCollectionOpen(true)}>
-            {t('newCollection')}
-          </button>
-        </div>
+        <button type="button" className="btn-primary" onClick={() => setCollectionOpen(true)}>
+          {t('newCollection')}
+        </button>
       </div>
 
-      {/* Inline quick paste — no modal */}
+      {/* Optional paste fallback — not a sync wizard */}
       <div className="card overflow-hidden">
         <button
           type="button"
@@ -202,7 +182,12 @@ export function GroupsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void 
       </div>
 
       {filtered.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-slate-500">{t('noGroups')}</div>
+        <div className="card p-8 text-center text-sm text-slate-500">
+          {t('noGroups')}
+          <p className="mt-2 text-xs text-slate-400">
+            הקבוצות יופיעו כאן אוטומטית אחרי שהתוסף מסנכרן — או דרך הייבוא המהיר למעלה.
+          </p>
+        </div>
       ) : (
         <div className="card overflow-hidden">
           <div className="hidden border-b border-line-soft bg-slate-50/80 px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[40px_1fr_120px_1fr_90px] md:gap-3">
@@ -289,78 +274,46 @@ export function GroupsPage({ onOpenSetupGuide }: { onOpenSetupGuide: () => void 
         </div>
       )}
 
-      {guideOpen && (
-        <Modal title={t('syncViaExtension')} onClose={() => setGuideOpen(false)}>
-          <ol className="list-decimal space-y-2 ps-5 text-sm text-slate-600">
-            <li>התקינו את תוסף Distro בדפדפן (Chrome / Kiwi / Mises).</li>
-            <li>הישארו מחוברים באתר — התוסף מתחבר אוטומטית בלי קוד.</li>
-            <li>פתחו פייסבוק, לחצו על התוסף ובחרו «משוך וסנכרן קבוצות».</li>
-            <li>או השתמשו ב«ייבוא מהיר של קבוצות» למעלה להדבקה ידנית.</li>
-          </ol>
+      {collectionOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
           <button
             type="button"
-            className="btn-primary mt-4 w-full"
-            onClick={() => {
-              void refreshGroups()
-              setGuideOpen(false)
-            }}
-          >
-            רענון קבוצות מהשרת
-          </button>
-        </Modal>
-      )}
-
-      {collectionOpen && (
-        <Modal title={t('newCollection')} onClose={() => setCollectionOpen(false)}>
-          <input
-            className="input"
-            value={collectionName}
-            onChange={(e) => setCollectionName(e.target.value)}
-            placeholder="Collection name"
+            className="absolute inset-0"
+            aria-label="Close"
+            onClick={() => setCollectionOpen(false)}
           />
-          <div className="mt-4 flex gap-2">
-            <button
-              type="button"
-              className="btn-secondary flex-1"
-              onClick={() => setCollectionOpen(false)}
-            >
-              {t('cancel')}
-            </button>
-            <button
-              type="button"
-              className="btn-primary flex-1"
-              disabled={!collectionName.trim()}
-              onClick={() => {
-                addCollection(collectionName.trim())
-                setCollectionName('')
-                setCollectionOpen(false)
-              }}
-            >
-              {t('save')}
-            </button>
+          <div className="relative w-full max-w-md rounded-card bg-white p-5 shadow-modal">
+            <h2 className="mb-3 text-lg font-semibold">{t('newCollection')}</h2>
+            <input
+              className="input"
+              value={collectionName}
+              onChange={(e) => setCollectionName(e.target.value)}
+              placeholder="Collection name"
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="btn-secondary flex-1"
+                onClick={() => setCollectionOpen(false)}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn-primary flex-1"
+                disabled={!collectionName.trim()}
+                onClick={() => {
+                  addCollection(collectionName.trim())
+                  setCollectionName('')
+                  setCollectionOpen(false)
+                }}
+              >
+                {t('save')}
+              </button>
+            </div>
           </div>
-        </Modal>
+        </div>
       )}
-    </div>
-  )
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-      <button type="button" className="absolute inset-0" aria-label="Close" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-card bg-white p-5 shadow-modal">
-        <h2 className="mb-3 text-lg font-semibold">{title}</h2>
-        {children}
-      </div>
     </div>
   )
 }

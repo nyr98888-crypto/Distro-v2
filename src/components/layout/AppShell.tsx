@@ -8,13 +8,12 @@ export type AppTab = 'timing' | 'groups' | 'settings'
 interface AppShellProps {
   tab: AppTab
   onTabChange: (tab: AppTab) => void
-  onOpenSetupGuide: () => void
   children: React.ReactNode
 }
 
 const tabs: AppTab[] = ['timing', 'groups', 'settings']
 
-export function AppShell({ tab, onTabChange, onOpenSetupGuide, children }: AppShellProps) {
+export function AppShell({ tab, onTabChange, children }: AppShellProps) {
   const { t } = useLanguage()
 
   const label = (key: AppTab) =>
@@ -31,13 +30,6 @@ export function AppShell({ tab, onTabChange, onOpenSetupGuide, children }: AppSh
               <div className="text-[11px] text-slate-400">Hybrid PWA</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onOpenSetupGuide}
-            className="mt-4 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-          >
-            {t('setupGuide')}
-          </button>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3">
@@ -69,23 +61,8 @@ export function AppShell({ tab, onTabChange, onOpenSetupGuide, children }: AppSh
             <BrandLogo size={32} rounded="rounded-lg" />
             <span className="text-sm font-semibold">{t('appName')}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onOpenSetupGuide}
-              className="min-h-touch rounded-lg border border-line-soft px-2.5 text-xs font-medium text-slate-700"
-            >
-              {t('setupGuide')}
-            </button>
-            <ConnectionPill compact />
-          </div>
+          <ConnectionPill compact />
         </header>
-
-        <div className="hidden items-center justify-end border-b border-line-soft bg-white/80 px-8 py-2 md:flex">
-          <button type="button" className="btn-secondary text-xs" onClick={onOpenSetupGuide}>
-            {t('setupGuide')}
-          </button>
-        </div>
 
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-8 md:py-6 md:pb-8">
           {children}

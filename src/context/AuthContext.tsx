@@ -7,7 +7,11 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { syncSessionToExtension, broadcastAuthToExtension } from '../lib/extensionBridge'
+import {
+  connectAndAutoSyncExtension,
+  startAutoExtensionLoop,
+  broadcastAuthToExtension,
+} from '../lib/extensionBridge'
 import { REQUIRED_OAUTH_ENV_VARS } from '../lib/config'
 import {
   authHeaders,
@@ -148,11 +152,12 @@ async function fetchMeUser(): Promise<AuthUserView | null> {
 }
 
 async function handshakeExtension(): Promise<boolean> {
-  const synced = await syncSessionToExtension()
+  const synced = await connectAndAutoSyncExtension()
   if (synced) return true
   const token = getStoredSessionToken()
   if (!token) return false
-  return broadcastAuthToExtension(token, window.location.origin)
+  const ok = await broadcastAuthToExtension(token, window.location.origin)
+  return ok
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -220,6 +225,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // While signed in: keep AUTH + SYNC_GROUPS firing whenever the bridge appears.
+  useEffect(() => {
+    if (!user && !getStoredSessionToken()) return
+    return startAutoExtensionLoop(() => setExtensionHandshakeOk(true))
+  }, [user])
 
   const logout = useCallback(async () => {
     try {
