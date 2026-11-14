@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import type { DayOfWeek, ScheduleStatus, ScheduledPost } from '@shared/types'
+import type { DayOfWeek, ScheduledPost } from '@shared/types'
 import { useAppData } from '../context/AppDataContext'
 import { useLanguage } from '../context/LanguageContext'
 
