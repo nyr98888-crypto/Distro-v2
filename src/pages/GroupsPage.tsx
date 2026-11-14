@@ -29,7 +29,7 @@ export function GroupsPage() {
   async function onRefresh() {
     setStatusMsg(null)
     void connectAndAutoSyncExtension()
-    const result = await refreshGroups()
+    const result = await refreshGroups({ showLoading: true })
     if (!result.ok) {
       setStatusMsg(result.error || 'רענון נכשל')
       return

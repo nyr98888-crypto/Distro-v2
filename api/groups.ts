@@ -201,6 +201,7 @@ export default async function handler(req: Req, res: Res) {
     const client = createClient({ url, authToken })
     await ensureSchema(client)
 
+    // Prefer this user's rows; if none, claim unowned rows then fall back to all.
     let result
     try {
       result = await client.execute({
@@ -209,6 +210,17 @@ export default async function handler(req: Req, res: Res) {
               ORDER BY name COLLATE NOCASE`,
         args: [session.sub],
       })
+      if (result.rows.length === 0) {
+        try {
+          await client.execute({
+            sql: `UPDATE groups SET user_id = ? WHERE user_id = '' OR user_id IS NULL`,
+            args: [session.sub],
+          })
+        } catch {
+          /* no user_id column */
+        }
+        result = await client.execute('SELECT * FROM groups ORDER BY name COLLATE NOCASE')
+      }
     } catch {
       result = await client.execute('SELECT * FROM groups ORDER BY name COLLATE NOCASE')
     }

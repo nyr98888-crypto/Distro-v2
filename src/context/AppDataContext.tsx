@@ -22,6 +22,9 @@ import { authHeaders, getStoredSessionToken } from '../lib/sessionStore'
 const GROUPS_LS_KEY = 'distro_groups_cache'
 const SCHEDULES_LS_KEY = 'distro_schedules_cache'
 
+/** Prevent overlapping /api/groups polls from stacking into an endless spinner. */
+let groupsInFlight: Promise<{ count: number; ok: boolean; error?: string }> | null = null
+
 interface AppDataContextValue {
   data: AppBootstrap
   selectedGroupIds: string[]
@@ -38,7 +41,9 @@ interface AppDataContextValue {
   addCollection: (name: string, color?: string) => void
   updateSettings: (patch: Partial<UserSettings>) => void
   refreshStats: () => void
-  refreshGroups: () => Promise<{ count: number; ok: boolean; error?: string }>
+  refreshGroups: (opts?: {
+    showLoading?: boolean
+  }) => Promise<{ count: number; ok: boolean; error?: string }>
   syncGroupsToServer: (groups: FacebookGroup[]) => Promise<{ ok: boolean; count: number }>
 }
 
@@ -156,57 +161,71 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setSelectedGroupIds(data.groups.filter((g) => g.active).map((g) => g.id))
   }, [data.groups])
 
-  const refreshGroups = useCallback(async () => {
-    setGroupsLoading(true)
-    try {
-      const res = await fetch(appConfig.groupsUrl, {
-        cache: 'no-store',
-        credentials: 'include',
-        headers: authHeaders(),
-      })
-      const json = (await res.json().catch(() => ({}))) as {
-        groups?: FacebookGroup[]
-        count?: number
-        lastSyncAt?: string | null
-        lastGroupSyncAt?: string | null
-        error?: string
-        ok?: boolean
-      }
-      if (!res.ok && res.status === 401) {
-        return { count: 0, ok: false, error: 'unauthorized' }
-      }
-      const remote = Array.isArray(json.groups) ? json.groups : []
-      const lastSync =
-        json.lastSyncAt || json.lastGroupSyncAt || (remote[0]?.syncedAt ?? null)
-      setData((prev) => {
-        const nextGroups = res.ok ? remote : prev.groups
-        writeCachedGroups(nextGroups)
-        return refreshDerived({
-          ...prev,
-          groups: nextGroups,
-          settings: {
-            ...prev.settings,
-            lastGroupSyncAt:
-              lastSync ||
-              (remote.length ? new Date().toISOString() : prev.settings.lastGroupSyncAt),
+  const refreshGroups = useCallback(async (opts?: { showLoading?: boolean }) => {
+    const showLoading = opts?.showLoading === true
+    // Single-flight: overlapping 2.5s polls were stacking into an endless spinner.
+    if (groupsInFlight) return groupsInFlight
+    if (showLoading) setGroupsLoading(true)
+    groupsInFlight = (async () => {
+      try {
+        const res = await fetch(`${appConfig.groupsUrl}?t=${Date.now()}`, {
+          cache: 'no-store',
+          credentials: 'include',
+          headers: {
+            ...authHeaders(),
+            'Cache-Control': 'no-cache',
           },
         })
-      })
-      setSelectedGroupIds((prev) => prev.filter((id) => remote.some((g) => g.id === id)))
-      return {
-        count: remote.length,
-        ok: Boolean(res.ok && json.ok !== false),
-        error: json.error,
+        const json = (await res.json().catch(() => ({}))) as {
+          groups?: FacebookGroup[]
+          count?: number
+          lastSyncAt?: string | null
+          lastGroupSyncAt?: string | null
+          error?: string
+          ok?: boolean
+        }
+        if (!res.ok && res.status === 401) {
+          return { count: 0, ok: false, error: 'unauthorized' }
+        }
+        const remote = Array.isArray(json.groups) ? json.groups : []
+        const lastSync =
+          json.lastSyncAt || json.lastGroupSyncAt || (remote[0]?.syncedAt ?? null)
+        setData((prev) => {
+          // Never wipe a non-empty local cache with an empty remote blip.
+          const nextGroups =
+            res.ok && (remote.length > 0 || prev.groups.length === 0) ? remote : prev.groups
+          writeCachedGroups(nextGroups)
+          return refreshDerived({
+            ...prev,
+            groups: nextGroups,
+            settings: {
+              ...prev.settings,
+              lastGroupSyncAt:
+                lastSync ||
+                (remote.length ? new Date().toISOString() : prev.settings.lastGroupSyncAt),
+            },
+          })
+        })
+        if (remote.length > 0) {
+          setSelectedGroupIds((prev) => prev.filter((id) => remote.some((g) => g.id === id)))
+        }
+        return {
+          count: remote.length,
+          ok: Boolean(res.ok && json.ok !== false),
+          error: json.error,
+        }
+      } catch (err) {
+        return {
+          count: 0,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      } finally {
+        groupsInFlight = null
+        if (showLoading) setGroupsLoading(false)
       }
-    } catch (err) {
-      return {
-        count: 0,
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    } finally {
-      setGroupsLoading(false)
-    }
+    })()
+    return groupsInFlight
   }, [])
 
   const syncGroupsToServer = useCallback(
@@ -235,10 +254,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             syncedAt: new Date().toISOString(),
           }),
         })
-        const body = (await res.json().catch(() => ({}))) as { count?: number }
-        applyGroups(groups, new Date().toISOString())
-        if (!res.ok) return { ok: false, count: groups.length }
-        return { ok: true, count: body.count ?? groups.length }
+        const body = (await res.json().catch(() => ({}))) as {
+          count?: number
+          groups?: FacebookGroup[]
+        }
+        const saved = Array.isArray(body.groups) && body.groups.length ? body.groups : groups
+        applyGroups(saved, new Date().toISOString())
+        if (!res.ok) return { ok: false, count: saved.length }
+        return { ok: true, count: body.count ?? saved.length }
       } catch {
         applyGroups(groups, new Date().toISOString())
         return { ok: true, count: groups.length }
@@ -247,11 +270,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     [applyGroups],
   )
 
-  // Load + poll groups so extension sync appears without full page reload.
+  // One load + gentle poll only while empty (no stacked requests / spinner loop).
   useEffect(() => {
     void refreshGroups()
-    // Fast poll so extension-synced groups appear on the main screen without reload.
-    const id = window.setInterval(() => void refreshGroups(), 2500)
+    const id = window.setInterval(() => {
+      setData((prev) => {
+        if (prev.groups.length === 0) void refreshGroups()
+        return prev
+      })
+    }, 15000)
     const onFocus = () => void refreshGroups()
     const onStorage = (e: StorageEvent) => {
       if (e.key === GROUPS_LS_KEY) void refreshGroups()

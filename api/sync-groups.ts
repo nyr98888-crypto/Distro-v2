@@ -291,26 +291,39 @@ export default async function handler(req: Req, res: Res) {
     await ensureSchema(client)
     const syncedAt = String(body.syncedAt || new Date().toISOString())
 
-    await client.execute({
-      sql: `INSERT INTO users (id, email, name, picture, provider, created_at, updated_at, last_login_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              email = excluded.email,
-              name = excluded.name,
-              picture = excluded.picture,
-              updated_at = excluded.updated_at,
-              last_login_at = excluded.last_login_at`,
-      args: [
-        session.sub,
-        session.email,
-        session.name,
-        session.picture,
-        session.provider || 'google',
-        syncedAt,
-        syncedAt,
-        syncedAt,
-      ],
-    })
+    // User row is best-effort — Google OAuth schema may require google_sub.
+    // Never block group upsert on users-table shape mismatches.
+    try {
+      await client.execute({
+        sql: `INSERT INTO users (id, email, name, picture, provider, created_at, updated_at, last_login_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                email = excluded.email,
+                name = excluded.name,
+                picture = excluded.picture,
+                updated_at = excluded.updated_at,
+                last_login_at = excluded.last_login_at`,
+        args: [
+          session.sub,
+          session.email,
+          session.name,
+          session.picture,
+          session.provider || 'google',
+          syncedAt,
+          syncedAt,
+          syncedAt,
+        ],
+      })
+    } catch {
+      try {
+        await client.execute({
+          sql: `UPDATE users SET email = ?, name = ?, picture = ?, updated_at = ?, last_login_at = ? WHERE id = ?`,
+          args: [session.email, session.name, session.picture, syncedAt, syncedAt, session.sub],
+        })
+      } catch {
+        /* continue — groups are what matter */
+      }
+    }
 
     let saved = 0
     for (const g of groupsIn) {

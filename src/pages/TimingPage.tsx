@@ -68,10 +68,7 @@ export function TimingPage() {
   useEffect(() => {
     void refreshGroups()
     void loadQueue()
-    const id = window.setInterval(() => {
-      void refreshGroups()
-      void loadQueue()
-    }, 3000)
+    const id = window.setInterval(() => void loadQueue(), 20000)
     return () => window.clearInterval(id)
   }, [refreshGroups, loadQueue])
 
