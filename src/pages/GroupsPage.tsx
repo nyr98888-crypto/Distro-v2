@@ -14,7 +14,7 @@ export function GroupsPage() {
   const [collectionOpen, setCollectionOpen] = useState(false)
   const [collectionName, setCollectionName] = useState('')
 
-  const [pasteOpen, setPasteOpen] = useState(data.groups.length === 0)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<FacebookGroup[]>([])
   const [pasteSelected, setPasteSelected] = useState<string[]>([])
@@ -184,9 +184,7 @@ export function GroupsPage() {
       {filtered.length === 0 ? (
         <div className="card p-8 text-center text-sm text-slate-500">
           {t('noGroups')}
-          <p className="mt-2 text-xs text-slate-400">
-            הקבוצות יופיעו כאן אוטומטית אחרי שהתוסף מסנכרן — או דרך הייבוא המהיר למעלה.
-          </p>
+          <p className="mt-2 text-xs text-slate-400">נמשכות אוטומטית ברקע אחרי Google.</p>
         </div>
       ) : (
         <div className="card overflow-hidden">

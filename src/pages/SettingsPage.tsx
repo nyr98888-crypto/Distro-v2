@@ -88,7 +88,8 @@ export function SettingsPage() {
           </span>
         </div>
         <p className="text-sm text-slate-600">
-          החיבור והסנכרון עם התוסף רצים אוטומטית אחרי התחברות Google — אין צורך בלחיצות נוספות.
+          אחרי Google אין לחיצות חיבור נוספות — התוסף והקבוצות רצים לבד ברקע. אחר כך רק «בחר הכל»
+          ו«הפעל פרסום».
         </p>
         <div className="text-sm text-slate-600">
           {t('lastSync')}:{' '}

@@ -31,6 +31,7 @@ function authQueryErrorMessage(code: string | null, locale: string): string | nu
   }
 }
 
+/** Only click #1 of the product: Google sign-in. Everything else is automatic. */
 export function LoginPage() {
   const { t, locale } = useLanguage()
   const { loginWithGoogle } = useAuth()
@@ -88,40 +89,33 @@ export function LoginPage() {
           <p className="mt-2 text-sm text-slate-500">{t('loginSubtitle')}</p>
         </div>
 
-        <div className="space-y-3">
-          <button
-            type="button"
-            className="btn-primary w-full"
-            disabled={pending}
-            onClick={() => void handleGoogle()}
-          >
-            {pending ? '…' : t('loginWithGoogle')}
-          </button>
-        </div>
-
-        <div
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            extensionReady
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              : 'border-amber-200 bg-amber-50 text-amber-900'
-          }`}
+        <button
+          type="button"
+          className="btn-primary w-full"
+          disabled={pending}
+          onClick={() => void handleGoogle()}
         >
-          {extensionReady ? (
-            <p>תוסף Distro v1.0.9 זוהה בדפדפן — מוכן לחיבור אחרי Google.</p>
-          ) : (
-            <p>
-              התקינו את תוסף Distro v1.0.9 ואז התחברו עם Google.{' '}
-              <a
-                className="font-medium underline"
-                href={appConfig.extensionStoreUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Chrome Web Store
-              </a>
-            </p>
-          )}
-        </div>
+          {pending ? '…' : t('loginWithGoogle')}
+        </button>
+
+        <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
+          {extensionReady
+            ? 'התוסף זוהה — אחרי Google החיבור והקבוצות רצים אוטומטית ברקע.'
+            : t('loginAutoExtensionHint')}
+        </p>
+
+        {!extensionReady && (
+          <p className="mt-2 text-center text-[11px] text-slate-400">
+            <a
+              className="underline hover:text-slate-600"
+              href={appConfig.extensionStoreUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Distro v1.0.9
+            </a>
+          </p>
+        )}
 
         {authError ? (
           <div
@@ -132,10 +126,7 @@ export function LoginPage() {
           </div>
         ) : null}
 
-        <p className="mt-6 text-center text-xs leading-relaxed text-slate-500">
-          {t('loginAutoExtensionHint')}
-        </p>
-        <p className="mt-4 text-center text-xs text-slate-400">
+        <p className="mt-6 text-center text-xs text-slate-400">
           <a href="/privacy" className="text-brand-indigo hover:underline">
             {t('privacyPolicy')}
           </a>

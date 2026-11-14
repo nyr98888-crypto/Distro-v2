@@ -26,9 +26,9 @@ export const translations = {
     logout: 'התנתק',
     loginWithGoogle: 'התחבר עם Google',
     loginWithFacebook: 'התחבר עם Facebook',
-    loginSubtitle: 'התחברו כדי לסנכרן קבוצות ולתזמן פרסומים',
+    loginSubtitle: 'לחיצה אחת — התוסף והקבוצות מתחברים לבד ברקע',
     loginAutoExtensionHint:
-      'אחרי ההתחברות התוסף יתחבר אוטומטית — בלי קודים ובלי הגדרות.',
+      'אחרי Google: חיבור התוסף ומשיכת הקבוצות רצים אוטומטית — בלי פופאפים ובלי «סיום».',
     extensionAutoHint:
       'התוסף מתחבר אוטומטית אחרי ההתחברות. אין צורך בקוד צימוד.',
     resyncExtension: 'סנכרן שוב לתוסף',
@@ -48,7 +48,7 @@ export const translations = {
     meta: 'Meta',
     connected: 'מחובר',
     disconnected: 'מנותק',
-    waitingConnection: 'ממתין לחיבור',
+    waitingConnection: 'מתחבר אוטומטית…',
     save: 'שמור',
     cancel: 'ביטול',
     edit: 'עריכה',
@@ -120,9 +120,9 @@ export const translations = {
     logout: 'Log out',
     loginWithGoogle: 'Continue with Google',
     loginWithFacebook: 'Continue with Facebook',
-    loginSubtitle: 'Sign in to sync groups and schedule posts',
+    loginSubtitle: 'One click — extension and groups connect in the background',
     loginAutoExtensionHint:
-      'After you sign in, the extension connects automatically — no codes or setup.',
+      'After Google: extension handshake and group pull run automatically — no popups, no “finish setup”.',
     extensionAutoHint:
       'The extension connects automatically after login. No pairing code needed.',
     resyncExtension: 'Re-sync to extension',
@@ -142,7 +142,7 @@ export const translations = {
     meta: 'Meta',
     connected: 'Connected',
     disconnected: 'Disconnected',
-    waitingConnection: 'Waiting to connect',
+    waitingConnection: 'Connecting automatically…',
     save: 'Save',
     cancel: 'Cancel',
     edit: 'Edit',
