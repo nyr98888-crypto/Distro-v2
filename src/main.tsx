@@ -11,7 +11,16 @@ import './index.css'
 // Capture ?session= from Google OAuth redirect before React mounts
 captureSessionFromUrl()
 
-registerSW({ immediate: true })
+// Always pull the newest shell — stale SW was serving the old setup/wizard UI.
+registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    window.location.reload()
+  },
+  onOfflineReady() {
+    /* no-op */
+  },
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
