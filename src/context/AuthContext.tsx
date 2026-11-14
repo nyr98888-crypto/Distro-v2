@@ -7,8 +7,17 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { syncSessionToExtension } from '../lib/extensionBridge'
+import { syncSessionToExtension, broadcastAuthToExtension } from '../lib/extensionBridge'
 import { REQUIRED_OAUTH_ENV_VARS } from '../lib/config'
+import {
+  authHeaders,
+  captureSessionFromUrl,
+  clearStoredSession,
+  getStoredSessionToken,
+  getStoredSessionUser,
+  peekSessionPayload,
+  saveSessionToken,
+} from '../lib/sessionStore'
 
 export type AuthUserView = {
   id: string
@@ -47,15 +56,10 @@ function extractErrorMessage(body: string): string | null {
       'Check GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AUTH_SECRET, APP_URL on Vercel.'
     )
   }
-  const pMatch = text.match(/<p>([^<]+)<\/p>/i)
-  if (pMatch?.[1]) return pMatch[1].trim()
-  const hMatch = text.match(/<h1>([^<]+)<\/h1>/i)
-  if (hMatch?.[1]) return hMatch[1].trim()
   if (text.length < 280 && !text.includes('<')) return text
   return null
 }
 
-/** Google OAuth only — uses window.location.origin (never Meta). */
 async function startGoogleOAuth(): Promise<void> {
   if (typeof window === 'undefined' || !window.location?.origin) {
     throw new Error('Auth client is uninitialized (window.location.origin unavailable).')
@@ -105,7 +109,13 @@ async function startGoogleOAuth(): Promise<void> {
 }
 
 async function fetchMeUser(): Promise<AuthUserView | null> {
-  const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' })
+  const res = await fetch('/api/auth/me', {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      ...authHeaders(),
+    },
+  })
   if (!res.ok) return null
   const json = (await res.json()) as {
     authenticated?: boolean
@@ -115,6 +125,16 @@ async function fetchMeUser(): Promise<AuthUserView | null> {
   return null
 }
 
+async function handshakeExtension(_user: AuthUserView): Promise<boolean> {
+  // Prefer server-minted extension token; fall back to stored session token.
+  const synced = await syncSessionToExtension()
+  if (synced) return true
+
+  const token = getStoredSessionToken()
+  if (!token) return false
+  return broadcastAuthToExtension(token, window.location.origin)
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [loading, setLoading] = useState(true)
@@ -122,54 +142,115 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      // Retry once — cookie may land a tick after OAuth redirect.
+      // 1) Capture OAuth URL handoff immediately (before login UI can flash)
+      const fromUrl = captureSessionFromUrl()
+      const token = fromUrl || getStoredSessionToken()
+
+      if (token) {
+        const peeked = peekSessionPayload(token) || getStoredSessionUser()
+        if (peeked?.email) {
+          // Optimistic dashboard entry while /api/auth/me verifies
+          setUser({
+            id: peeked.id || 'pending',
+            email: peeked.email,
+            name: peeked.name,
+            picture: peeked.picture,
+            provider: peeked.provider || 'google',
+          })
+        }
+      }
+
       let next = await fetchMeUser()
-      if (!next) {
-        await new Promise((r) => setTimeout(r, 250))
+      if (!next && token) {
+        await new Promise((r) => setTimeout(r, 200))
         next = await fetchMeUser()
       }
+
       if (next) {
         setUser(next)
-        const ok = await syncSessionToExtension()
+        const existing = getStoredSessionToken()
+        if (existing) {
+          saveSessionToken(existing, {
+            id: next.id,
+            email: next.email,
+            name: next.name,
+            picture: next.picture,
+            provider: next.provider,
+          })
+        }
+        const ok = await handshakeExtension(next)
         setExtensionHandshakeOk(ok)
+      } else if (!token) {
+        setUser(null)
+        setExtensionHandshakeOk(null)
+      } else {
+        // Keep optimistic user if me failed but we still have a local token
+        const peeked = peekSessionPayload(token) || getStoredSessionUser()
+        if (peeked?.email) {
+          setUser({
+            id: peeked.id || 'local',
+            email: peeked.email,
+            name: peeked.name,
+            picture: peeked.picture,
+            provider: peeked.provider || 'google',
+          })
+          const ok = await handshakeExtension({
+            id: peeked.id || 'local',
+            email: peeked.email,
+            name: peeked.name,
+            picture: peeked.picture,
+            provider: peeked.provider || 'google',
+          })
+          setExtensionHandshakeOk(ok)
+        } else {
+          setUser(null)
+          setExtensionHandshakeOk(null)
+        }
+      }
+    } catch {
+      const token = getStoredSessionToken()
+      const peeked = token ? peekSessionPayload(token) || getStoredSessionUser() : null
+      if (peeked?.email) {
+        setUser({
+          id: peeked.id || 'local',
+          email: peeked.email,
+          name: peeked.name,
+          picture: peeked.picture,
+          provider: peeked.provider || 'google',
+        })
       } else {
         setUser(null)
         setExtensionHandshakeOk(null)
       }
-    } catch {
-      setUser(null)
-      setExtensionHandshakeOk(null)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  useEffect(() => {
+    // Capture session synchronously on first paint path
     const params = new URLSearchParams(window.location.search)
-    const auth = params.get('auth')
-    if (auth === 'connected') {
+    if (params.get('session') || params.get('auth') === 'connected') {
       try {
         sessionStorage.setItem(HANDSHAKE_FLAG, '1')
       } catch {
         /* ignore */
       }
-      setLoading(true)
-      void refresh().finally(() => {
-        window.history.replaceState({}, '', window.location.pathname)
-      })
     }
+    void refresh()
   }, [refresh])
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...authHeaders() },
+      })
     } catch {
       /* ignore */
     }
+    clearStoredSession()
     setUser(null)
     setExtensionHandshakeOk(null)
     try {

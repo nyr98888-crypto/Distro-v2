@@ -1,6 +1,7 @@
 /**
  * GET /api/auth/google/callback
- * Uses built-in fetch + @libsql/client/web only (no native @libsql/client).
+ * Sets httpOnly cookie AND redirects with ?session= so the SPA can persist
+ * the token even when cookies are dropped (PWA / SW / third-party quirks).
  */
 import { createClient } from '@libsql/client/web'
 import { createHash, createHmac } from 'node:crypto'
@@ -108,63 +109,74 @@ async function upsertGoogleUser(input: {
   name: string
   picture: string | null
 }): Promise<{ id: string; email: string; name: string; picture: string | null }> {
-  const now = new Date().toISOString()
-  const userId = `usr_${Math.random().toString(36).slice(2, 10)}`
-  const url = readEnv('TURSO_DATABASE_URL')
-  const authToken = readEnv('TURSO_AUTH_TOKEN')
-
-  if (!url || !authToken) {
-    // Memory fallback for local/demo — stable id from google sub
-    return {
-      id: `usr_google_${input.providerSub}`,
-      email: input.email,
-      name: input.name,
-      picture: input.picture,
-    }
+  const fallbackId = `usr_google_${input.providerSub}`
+  const fallback = {
+    id: fallbackId,
+    email: input.email,
+    name: input.name,
+    picture: input.picture,
   }
 
-  const client = createClient({ url, authToken })
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      google_sub TEXT NOT NULL UNIQUE,
-      email TEXT NOT NULL,
-      name TEXT NOT NULL DEFAULT '',
-      picture TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_login_at TEXT NOT NULL
-    )
-  `)
+  const url = readEnv('TURSO_DATABASE_URL')
+  const authToken = readEnv('TURSO_AUTH_TOKEN')
+  if (!url || !authToken) return fallback
 
-  const existing = await client.execute({
-    sql: 'SELECT id FROM users WHERE google_sub = ? LIMIT 1',
-    args: [input.providerSub],
+  try {
+    const now = new Date().toISOString()
+    const client = createClient({ url, authToken })
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        google_sub TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        picture TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL
+      )
+    `)
+
+    const existing = await client.execute({
+      sql: 'SELECT id FROM users WHERE google_sub = ? LIMIT 1',
+      args: [input.providerSub],
+    })
+    const id =
+      (existing.rows[0]?.id as string | undefined) ||
+      `usr_${Math.random().toString(36).slice(2, 10)}`
+
+    await client.execute({
+      sql: `INSERT INTO users (id, google_sub, email, name, picture, created_at, updated_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(google_sub) DO UPDATE SET
+              email = excluded.email,
+              name = excluded.name,
+              picture = excluded.picture,
+              updated_at = excluded.updated_at,
+              last_login_at = excluded.last_login_at`,
+      args: [id, input.providerSub, input.email, input.name, input.picture, now, now, now],
+    })
+
+    return { id, email: input.email, name: input.name, picture: input.picture }
+  } catch (err) {
+    console.warn('[google/callback] Turso upsert failed; using fallback user id', err)
+    return fallback
+  }
+}
+
+function redirectWithSession(
+  home: string,
+  token: string,
+  user: { email: string; name: string; picture: string | null },
+): string {
+  const params = new URLSearchParams({
+    auth: 'connected',
+    session: token,
+    email: user.email,
+    name: user.name,
   })
-  const id = (existing.rows[0]?.id as string | undefined) || userId
-
-  await client.execute({
-    sql: `INSERT INTO users (id, google_sub, email, name, picture, created_at, updated_at, last_login_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(google_sub) DO UPDATE SET
-            email = excluded.email,
-            name = excluded.name,
-            picture = excluded.picture,
-            updated_at = excluded.updated_at,
-            last_login_at = excluded.last_login_at`,
-    args: [
-      id,
-      input.providerSub,
-      input.email,
-      input.name,
-      input.picture,
-      now,
-      now,
-      now,
-    ],
-  })
-
-  return { id, email: input.email, name: input.name, picture: input.picture }
+  if (user.picture) params.set('picture', user.picture)
+  return `${home}/?${params.toString()}`
 }
 
 export default async function handler(req: Req, res: Res) {
@@ -186,10 +198,10 @@ export default async function handler(req: Req, res: Res) {
       return res.redirect(302, `${home}/?auth=error`)
     }
     if (!authSecret || authSecret.length < 32) {
-      return res.status(500).json({ error: 'AUTH_SECRET must be set (32+ chars) on Vercel.' })
+      return res.status(400).json({ error: 'AUTH_SECRET must be set (32+ chars) on Vercel.' })
     }
     if (!clientId || !clientSecret) {
-      return res.status(500).json({
+      return res.status(400).json({
         error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set on Vercel.',
       })
     }
@@ -249,14 +261,10 @@ export default async function handler(req: Req, res: Res) {
       authSecret,
     })
     setSessionCookie(req, res, sessionToken)
-    return res.redirect(302, `${home}/?auth=connected`)
+    return res.redirect(302, redirectWithSession(home, sessionToken, user))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/auth/google/callback]', message)
-    try {
-      return res.status(500).json({ error: message })
-    } catch {
-      return res.redirect(302, `${home}/?auth=error`)
-    }
+    return res.redirect(302, `${home}/?auth=error`)
   }
 }

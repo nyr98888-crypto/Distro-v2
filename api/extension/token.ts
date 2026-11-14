@@ -4,18 +4,19 @@
  * Uses session cookie claims directly so handshake works even if Turso lookup fails.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { createSessionToken, getSessionFromRequest } from '../lib/session'
+import { createSessionToken, getSessionFromRequestOrBearer } from '../lib/session'
 import { env } from '../env'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
   res.setHeader('Access-Control-Allow-Credentials', 'true')
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
   if (req.method === 'OPTIONS') return res.status(204).end()
   if (req.method !== 'GET') return res.status(405).json({ error: 'method_not_allowed' })
 
   try {
-    const session = getSessionFromRequest(req)
+    const session = getSessionFromRequestOrBearer(req)
     if (!session) return res.status(401).json({ error: 'unauthorized' })
 
     let user = {

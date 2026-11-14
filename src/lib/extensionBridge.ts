@@ -118,23 +118,37 @@ export function broadcastAuthToExtension(
 }
 
 export async function fetchExtensionToken(): Promise<{ token: string; apiUrl: string } | null> {
+  const origin =
+    typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : ''
+
   try {
+    const { authHeaders, getStoredSessionToken } = await import('./sessionStore')
     const res = await fetch('/api/extension/token', {
       credentials: 'include',
       cache: 'no-store',
+      headers: { ...authHeaders() },
     })
-    if (!res.ok) return null
-    const json = (await res.json()) as { token?: string; apiUrl?: string }
-    if (!json.token || !json.apiUrl) return null
-    return {
-      token: json.token,
-      // Prefer live origin so production never sends localhost to the extension
-      apiUrl: (typeof window !== 'undefined' ? window.location.origin : json.apiUrl).replace(
-        /\/$/,
-        '',
-      ),
+    if (res.ok) {
+      const json = (await res.json()) as { token?: string; apiUrl?: string }
+      if (json.token) {
+        return {
+          token: json.token,
+          apiUrl: (json.apiUrl || origin).replace(/\/$/, ''),
+        }
+      }
     }
+    // Fallback: hand the same signed session token the web app already has
+    const local = getStoredSessionToken()
+    if (local) return { token: local, apiUrl: origin }
+    return null
   } catch {
+    try {
+      const { getStoredSessionToken } = await import('./sessionStore')
+      const local = getStoredSessionToken()
+      if (local) return { token: local, apiUrl: origin }
+    } catch {
+      /* ignore */
+    }
     return null
   }
 }

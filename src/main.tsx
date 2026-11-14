@@ -4,8 +4,12 @@ import { registerSW } from 'virtual:pwa-register'
 import { LanguageProvider } from './context/LanguageContext'
 import { AppDataProvider } from './context/AppDataContext'
 import { AuthProvider } from './context/AuthContext'
+import { captureSessionFromUrl } from './lib/sessionStore'
 import App from './App'
 import './index.css'
+
+// Capture ?session= from Google OAuth redirect before React mounts
+captureSessionFromUrl()
 
 registerSW({ immediate: true })
 
