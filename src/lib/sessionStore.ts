@@ -81,30 +81,29 @@ export function peekSessionPayload(token: string): StoredSessionUser | null {
 }
 
 /**
- * Capture ?session= from OAuth redirect, persist, and clean the URL.
- * Returns the token if found in the URL (or already in localStorage).
+ * Capture ?session= from OAuth redirect (legacy), persist, and clean the URL.
+ * Primary handoff is now the HTML bridge writing localStorage directly.
  */
 export function captureSessionFromUrl(): string | null {
   if (typeof window === 'undefined') return null
   const params = new URLSearchParams(window.location.search)
   const token = params.get('session')
   if (token && token.length > 10) {
-    const email = params.get('email') || ''
-    const name = params.get('name') || email || 'User'
-    const picture = params.get('picture')
     const peeked = peekSessionPayload(token)
+    const email = params.get('email') || peeked?.email || ''
+    const name = params.get('name') || peeked?.name || email || 'User'
+    const picture = params.get('picture') || peeked?.picture || null
     saveSessionToken(token, {
       id: peeked?.id,
-      email: email || peeked?.email || '',
-      name: name || peeked?.name || 'User',
-      picture: picture || peeked?.picture || null,
+      email,
+      name,
+      picture,
       provider: peeked?.provider || 'google',
     })
     params.delete('session')
     params.delete('email')
     params.delete('name')
     params.delete('picture')
-    // keep auth=connected briefly for handshake banner, then caller may clear
     const qs = params.toString()
     window.history.replaceState({}, '', qs ? `/?${qs}` : '/')
     return token

@@ -48,7 +48,7 @@ function extractErrorMessage(body: string): string | null {
     if (json.message) return json.message
     if (json.error) return json.error
   } catch {
-    /* not JSON */
+    /* not JSON — likely SW-served HTML */
   }
   if (/FUNCTION_INVOCATION_FAILED/i.test(text)) {
     return (
@@ -58,6 +58,20 @@ function extractErrorMessage(body: string): string | null {
   }
   if (text.length < 280 && !text.includes('<')) return text
   return null
+}
+
+function userFromLocalToken(): AuthUserView | null {
+  const token = getStoredSessionToken()
+  if (!token) return null
+  const peeked = peekSessionPayload(token) || getStoredSessionUser()
+  if (!peeked?.email) return null
+  return {
+    id: peeked.id || 'local',
+    email: peeked.email,
+    name: peeked.name || peeked.email,
+    picture: peeked.picture,
+    provider: peeked.provider || 'google',
+  }
 }
 
 async function startGoogleOAuth(): Promise<void> {
@@ -109,68 +123,70 @@ async function startGoogleOAuth(): Promise<void> {
 }
 
 async function fetchMeUser(): Promise<AuthUserView | null> {
-  const res = await fetch('/api/auth/me', {
-    credentials: 'include',
-    cache: 'no-store',
-    headers: {
-      ...authHeaders(),
-    },
-  })
-  if (!res.ok) return null
-  const json = (await res.json()) as {
-    authenticated?: boolean
-    user?: AuthUserView
+  try {
+    const res = await fetch('/api/auth/me', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        ...authHeaders(),
+      },
+    })
+    const contentType = res.headers.get('content-type') || ''
+    // Service worker may wrongly return index.html for /api/*
+    if (!contentType.includes('application/json')) return null
+    if (!res.ok) return null
+    const json = (await res.json()) as {
+      authenticated?: boolean
+      user?: AuthUserView
+    }
+    if (json.authenticated && json.user) return json.user
+    return null
+  } catch {
+    return null
   }
-  if (json.authenticated && json.user) return json.user
-  return null
 }
 
-async function handshakeExtension(_user: AuthUserView): Promise<boolean> {
-  // Prefer server-minted extension token; fall back to stored session token.
+async function handshakeExtension(): Promise<boolean> {
   const synced = await syncSessionToExtension()
   if (synced) return true
-
   const token = getStoredSessionToken()
   if (!token) return false
   return broadcastAuthToExtension(token, window.location.origin)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUserView | null>(null)
-  const [loading, setLoading] = useState(true)
+  // Seed from localStorage immediately so Login never flashes after OAuth bridge
+  const [user, setUser] = useState<AuthUserView | null>(() => userFromLocalToken())
+  const [loading, setLoading] = useState(() => !userFromLocalToken())
   const [extensionHandshakeOk, setExtensionHandshakeOk] = useState<boolean | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      // 1) Capture OAuth URL handoff immediately (before login UI can flash)
-      const fromUrl = captureSessionFromUrl()
-      const token = fromUrl || getStoredSessionToken()
+      captureSessionFromUrl()
 
-      if (token) {
-        const peeked = peekSessionPayload(token) || getStoredSessionUser()
-        if (peeked?.email) {
-          // Optimistic dashboard entry while /api/auth/me verifies
-          setUser({
-            id: peeked.id || 'pending',
-            email: peeked.email,
-            name: peeked.name,
-            picture: peeked.picture,
-            provider: peeked.provider || 'google',
-          })
+      // Hash handoff from HTML bridge: /#auth=connected
+      if (window.location.hash.includes('auth=connected')) {
+        try {
+          sessionStorage.setItem(HANDSHAKE_FLAG, '1')
+        } catch {
+          /* ignore */
         }
+        window.history.replaceState({}, '', '/')
       }
 
-      let next = await fetchMeUser()
-      if (!next && token) {
-        await new Promise((r) => setTimeout(r, 200))
-        next = await fetchMeUser()
+      const local = userFromLocalToken()
+      if (local) {
+        setUser(local)
+        setLoading(false)
       }
 
+      const next = await fetchMeUser()
       if (next) {
         setUser(next)
-        const existing = getStoredSessionToken()
-        if (existing) {
-          saveSessionToken(existing, {
+        const token = getStoredSessionToken()
+        if (token) {
+          saveSessionToken(token, {
             id: next.id,
             email: next.email,
             name: next.name,
@@ -178,59 +194,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             provider: next.provider,
           })
         }
-        const ok = await handshakeExtension(next)
+        const ok = await handshakeExtension()
         setExtensionHandshakeOk(ok)
-      } else if (!token) {
+      } else if (local) {
+        // Stay in the app with local session even if /api/auth/me is blocked by SW
+        const ok = await handshakeExtension()
+        setExtensionHandshakeOk(ok)
+      } else if (!getStoredSessionToken()) {
         setUser(null)
         setExtensionHandshakeOk(null)
-      } else {
-        // Keep optimistic user if me failed but we still have a local token
-        const peeked = peekSessionPayload(token) || getStoredSessionUser()
-        if (peeked?.email) {
-          setUser({
-            id: peeked.id || 'local',
-            email: peeked.email,
-            name: peeked.name,
-            picture: peeked.picture,
-            provider: peeked.provider || 'google',
-          })
-          const ok = await handshakeExtension({
-            id: peeked.id || 'local',
-            email: peeked.email,
-            name: peeked.name,
-            picture: peeked.picture,
-            provider: peeked.provider || 'google',
-          })
-          setExtensionHandshakeOk(ok)
-        } else {
-          setUser(null)
-          setExtensionHandshakeOk(null)
-        }
       }
     } catch {
-      const token = getStoredSessionToken()
-      const peeked = token ? peekSessionPayload(token) || getStoredSessionUser() : null
-      if (peeked?.email) {
-        setUser({
-          id: peeked.id || 'local',
-          email: peeked.email,
-          name: peeked.name,
-          picture: peeked.picture,
-          provider: peeked.provider || 'google',
-        })
-      } else {
-        setUser(null)
-        setExtensionHandshakeOk(null)
-      }
+      const local = userFromLocalToken()
+      if (local) setUser(local)
+      else setUser(null)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    // Capture session synchronously on first paint path
     const params = new URLSearchParams(window.location.search)
-    if (params.get('session') || params.get('auth') === 'connected') {
+    if (
+      params.get('session') ||
+      params.get('auth') === 'connected' ||
+      window.location.hash.includes('auth=connected')
+    ) {
       try {
         sessionStorage.setItem(HANDSHAKE_FLAG, '1')
       } catch {

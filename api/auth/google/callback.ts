@@ -1,7 +1,7 @@
 /**
  * GET /api/auth/google/callback
- * Sets httpOnly cookie AND redirects with ?session= so the SPA can persist
- * the token even when cookies are dropped (PWA / SW / third-party quirks).
+ * Sets httpOnly cookie, then returns a tiny HTML bridge that writes the session
+ * token into localStorage and redirects to `/` — survives PWA/SW cookie drops.
  */
 import { createClient } from '@libsql/client/web'
 import { createHash, createHmac } from 'node:crypto'
@@ -17,6 +17,7 @@ type Res = {
   json: (body: unknown) => unknown
   redirect: (code: number, url: string) => unknown
   setHeader: (name: string, value: string) => void
+  send: (body: string) => unknown
 }
 
 const SESSION_COOKIE = 'distro_session'
@@ -109,9 +110,8 @@ async function upsertGoogleUser(input: {
   name: string
   picture: string | null
 }): Promise<{ id: string; email: string; name: string; picture: string | null }> {
-  const fallbackId = `usr_google_${input.providerSub}`
   const fallback = {
-    id: fallbackId,
+    id: `usr_google_${input.providerSub}`,
     email: input.email,
     name: input.name,
     picture: input.picture,
@@ -136,7 +136,6 @@ async function upsertGoogleUser(input: {
         last_login_at TEXT NOT NULL
       )
     `)
-
     const existing = await client.execute({
       sql: 'SELECT id FROM users WHERE google_sub = ? LIMIT 1',
       args: [input.providerSub],
@@ -144,7 +143,6 @@ async function upsertGoogleUser(input: {
     const id =
       (existing.rows[0]?.id as string | undefined) ||
       `usr_${Math.random().toString(36).slice(2, 10)}`
-
     await client.execute({
       sql: `INSERT INTO users (id, google_sub, email, name, picture, created_at, updated_at, last_login_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -156,7 +154,6 @@ async function upsertGoogleUser(input: {
               last_login_at = excluded.last_login_at`,
       args: [id, input.providerSub, input.email, input.name, input.picture, now, now, now],
     })
-
     return { id, email: input.email, name: input.name, picture: input.picture }
   } catch (err) {
     console.warn('[google/callback] Turso upsert failed; using fallback user id', err)
@@ -164,19 +161,53 @@ async function upsertGoogleUser(input: {
   }
 }
 
-function redirectWithSession(
-  home: string,
+function escapeJs(value: string): string {
+  return JSON.stringify(value)
+}
+
+/** HTML bridge: write localStorage then enter the SPA dashboard. */
+function sendSessionBridge(
+  res: Res,
   token: string,
   user: { email: string; name: string; picture: string | null },
-): string {
-  const params = new URLSearchParams({
-    auth: 'connected',
-    session: token,
-    email: user.email,
-    name: user.name,
-  })
-  if (user.picture) params.set('picture', user.picture)
-  return `${home}/?${params.toString()}`
+): unknown {
+  const userJson = escapeJs(
+    JSON.stringify({
+      email: user.email,
+      name: user.name,
+      picture: user.picture,
+      provider: 'google',
+    }),
+  )
+  const html = `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Distro — מתחבר…</title>
+  <style>
+    body{font-family:Heebo,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f6f8fa;color:#0f172a;margin:0}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem 1.75rem;box-shadow:0 8px 30px rgba(15,23,42,.06)}
+  </style>
+</head>
+<body>
+  <div class="card">מתחבר ל־Distro V2…</div>
+  <script>
+    (function () {
+      try {
+        localStorage.setItem('distro_session_token', ${escapeJs(token)});
+        localStorage.setItem('distro_session_user', ${userJson});
+        sessionStorage.setItem('distro_ext_handshake', '1');
+      } catch (e) {}
+      // Prefer hash so service workers / proxies don't strip the token
+      location.replace('/#auth=connected');
+    })();
+  </script>
+</body>
+</html>`
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-store')
+  return res.status(200).send(html)
 }
 
 export default async function handler(req: Req, res: Res) {
@@ -194,9 +225,7 @@ export default async function handler(req: Req, res: Res) {
     const clientSecret = readEnv('GOOGLE_CLIENT_SECRET')
     const redirectUri = googleRedirectUri()
 
-    if (oauthError) {
-      return res.redirect(302, `${home}/?auth=error`)
-    }
+    if (oauthError) return res.redirect(302, `${home}/?auth=error`)
     if (!authSecret || authSecret.length < 32) {
       return res.status(400).json({ error: 'AUTH_SECRET must be set (32+ chars) on Vercel.' })
     }
@@ -261,7 +290,7 @@ export default async function handler(req: Req, res: Res) {
       authSecret,
     })
     setSessionCookie(req, res, sessionToken)
-    return res.redirect(302, redirectWithSession(home, sessionToken, user))
+    return sendSessionBridge(res, sessionToken, user)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/auth/google/callback]', message)

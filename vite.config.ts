@@ -52,8 +52,14 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         navigateFallback: '/index.html',
         // Never serve the SPA shell for API/OAuth navigations — otherwise
-        // login buttons appear to "do nothing" (SW returns index.html).
+        // login buttons appear to "do nothing" / /api/auth/me returns HTML.
         navigateFallbackDenylist: [/^\/api\//],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+            handler: 'NetworkOnly',
+          },
+        ],
       },
       devOptions: {
         enabled: true,

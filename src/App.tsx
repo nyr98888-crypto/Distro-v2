@@ -12,26 +12,35 @@ import { LoginPage } from './pages/LoginPage'
 import { ExtensionConnectedBanner } from './components/ExtensionConnectedBanner'
 import { useAppData } from './context/AppDataContext'
 import { useAuth } from './context/AuthContext'
+import { getStoredSessionToken } from './lib/sessionStore'
 
+/**
+ * Main Distro V2 interface lives here (no separate /dashboard route):
+ * Timing + Groups + Settings inside AppShell once authenticated.
+ */
 export default function App() {
   const { user, loading } = useAuth()
   const { data } = useAppData()
   const [tab, setTab] = useState<AppTab>('timing')
   const [wizardOpen, setWizardOpen] = useState(false)
 
+  // Session in localStorage counts as authenticated even before /api/auth/me returns
+  const hasLocalSession = Boolean(getStoredSessionToken())
+  const isAuthenticated = Boolean(user) || hasLocalSession
+
   useEffect(() => {
-    if (!user) return
+    if (!isAuthenticated) return
     if (data.groups.length === 0 && !wasOnboardingSkipped()) {
       setWizardOpen(true)
     }
-  }, [user, data.groups.length])
+  }, [isAuthenticated, data.groups.length])
 
   function openSetupGuide() {
     clearOnboardingSkipped()
     setWizardOpen(true)
   }
 
-  if (loading) {
+  if (loading && !isAuthenticated) {
     return (
       <div className="flex h-full items-center justify-center bg-warm-mist text-sm text-slate-500">
         טוען…
@@ -39,7 +48,7 @@ export default function App() {
     )
   }
 
-  if (!user) {
+  if (!isAuthenticated) {
     return <LoginPage />
   }
 
