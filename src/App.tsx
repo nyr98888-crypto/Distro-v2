@@ -10,7 +10,7 @@ import { getStoredSessionToken } from './lib/sessionStore'
 
 /** Main Distro V2 UI — Google sign-in only; extension AUTH+SYNC is fully automatic. */
 export default function App() {
-  const { user, loading } = useAuth()
+  const { user } = useAuth()
   const [tab, setTab] = useState<AppTab>('timing')
 
   const hasLocalSession = Boolean(getStoredSessionToken())
@@ -20,8 +20,6 @@ export default function App() {
   if (!isAuthenticated) {
     return <LoginPage />
   }
-
-  void loading
 
   return (
     <>
