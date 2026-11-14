@@ -56,7 +56,6 @@ function id(prefix: string): string {
 }
 
 function seedMemory(store: MemoryStore): void {
-  const now = new Date().toISOString()
   store.settings.set('extension_id', '')
   store.settings.set('min_delay_seconds', '45')
   store.settings.set('max_delay_seconds', '120')
@@ -68,53 +67,7 @@ function seedMemory(store: MemoryStore): void {
   store.settings.set('last_group_sync_at', '')
   store.settings.set('last_extension_ping', '')
   store.settings.set('posts_published', '0')
-
-  const collections: GroupCollection[] = [
-    {
-      id: 'col_realestate',
-      name: 'קבוצות נדל״ן והשכרות',
-      color: '#4F46E5',
-      groupIds: [],
-      createdAt: now,
-    },
-    { id: 'col_local', name: 'עסקים מקומיים', color: '#059669', groupIds: [], createdAt: now },
-    { id: 'col_jobs', name: 'דרושים ועבודות', color: '#D97706', groupIds: [], createdAt: now },
-  ]
-  for (const c of collections) store.collections.set(c.id, c)
-
-  // First-login: no groups until extension sync
-  const schedules: ScheduledPost[] = [
-    {
-      id: 's1',
-      title: 'פרסום יומי - דירות מרכז',
-      body: 'דירות להשכרה באזור המרכז — עדכון יומי עם פרטים מלאים.',
-      mediaUrls: [
-        'https://picsum.photos/seed/he-s1a/320/320',
-        'https://picsum.photos/seed/he-s1b/320/320',
-      ],
-      collectionId: 'col_realestate',
-      collectionName: 'קבוצות נדל״ן והשכרות',
-      days: ['Sun', 'Wed'],
-      time: '10:00',
-      status: 'scheduled',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 's2',
-      title: 'מבצע סוף שבוע לעסקים',
-      body: 'מבצע מיוחד לסוף השבוע — שתפו עם הלקוחות שלכם.',
-      mediaUrls: ['https://picsum.photos/seed/he-s2/320/320'],
-      collectionId: 'col_local',
-      collectionName: 'עסקים מקומיים',
-      days: ['Fri', 'Sat'],
-      time: '18:30',
-      status: 'scheduled',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]
-  for (const s of schedules) store.schedules.set(s.id, s)
+  // No demo groups, collections, or campaigns — real data only.
 }
 
 function getTurso(): Client | null {

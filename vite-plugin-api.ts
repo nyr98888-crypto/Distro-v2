@@ -143,8 +143,8 @@ export function distroLocalApi(): Plugin {
           }
 
           if (url.pathname === '/api/groups' && req.method === 'GET') {
-            const groups = await db.listGroups()
-            send(res, 200, { groups, count: groups.length })
+            const handler = (await import('./api/groups')).default
+            await handler(vercelReq, vercelRes)
             return
           }
 
@@ -156,7 +156,10 @@ export function distroLocalApi(): Plugin {
             return
           }
 
-          if (url.pathname === '/api/sync-groups' && req.method === 'POST') {
+          if (
+            (url.pathname === '/api/sync-groups' || url.pathname === '/api/groups/sync') &&
+            req.method === 'POST'
+          ) {
             const body = await readJson(req)
             ;(vercelReq as { body?: unknown }).body = body
             const handler = (await import('./api/sync-groups')).default

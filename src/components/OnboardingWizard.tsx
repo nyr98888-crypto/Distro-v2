@@ -5,7 +5,6 @@ import { useAppData } from '../context/AppDataContext'
 import { useLanguage } from '../context/LanguageContext'
 import { appConfig } from '../lib/config'
 import { detectDevice, type DeviceKind } from '../lib/device'
-import { mockGroups } from '../data/mock'
 import { syncSessionToExtension } from '../lib/extensionBridge'
 import { BrandLogo } from './BrandLogo'
 
@@ -86,14 +85,6 @@ export function OnboardingWizard({ open, onClose }: OnboardingWizardProps) {
   function skip() {
     markOnboardingSkipped()
     onClose()
-  }
-
-  function simulateLocalSync() {
-    const seeded = structuredClone(mockGroups)
-    setLiveGroups(seeded)
-    setGroups(seeded)
-    updateSettings({ lastGroupSyncAt: new Date().toISOString() })
-    void syncSessionToExtension()
   }
 
   return (
@@ -213,11 +204,9 @@ export function OnboardingWizard({ open, onClose }: OnboardingWizardProps) {
               {groupCount === 0 ? (
                 <div className="rounded-card border border-dashed border-line-soft p-6 text-center text-sm text-slate-500">
                   {t('waitingForExtension')}
-                  <div className="mt-3">
-                    <button type="button" className="btn-secondary text-xs" onClick={simulateLocalSync}>
-                      Demo: טען קבוצות לדוגמה
-                    </button>
-                  </div>
+                  <p className="mt-2 text-xs text-slate-400">
+                    אפשר גם לסגור ולהשתמש ב«ייבוא מהיר של קבוצות» במסך הקבוצות.
+                  </p>
                 </div>
               ) : (
                 <ul className="max-h-56 space-y-2 overflow-y-auto rounded-card border border-line-soft p-2">
@@ -263,13 +252,8 @@ export function OnboardingWizard({ open, onClose }: OnboardingWizardProps) {
               {t('next')}
             </button>
           ) : (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={groupCount === 0}
-              onClick={finish}
-            >
-              {t('finishManageGroups')}
+            <button type="button" className="btn-primary" onClick={finish}>
+              {groupCount === 0 ? t('skipForNow') : t('finishManageGroups')}
             </button>
           )}
         </footer>

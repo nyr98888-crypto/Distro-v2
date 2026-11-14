@@ -2,21 +2,20 @@ import { useEffect, useState } from 'react'
 import { AppShell, type AppTab } from './components/layout/AppShell'
 import {
   OnboardingWizard,
-  wasOnboardingSkipped,
-  clearOnboardingSkipped,
+  markOnboardingSkipped,
 } from './components/OnboardingWizard'
 import { TimingPage } from './pages/TimingPage'
 import { GroupsPage } from './pages/GroupsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
 import { ExtensionConnectedBanner } from './components/ExtensionConnectedBanner'
-import { useAppData } from './context/AppDataContext'
 import { useAuth } from './context/AuthContext'
+import { useAppData } from './context/AppDataContext'
 import { getStoredSessionToken } from './lib/sessionStore'
 
 /**
- * Main Distro V2 interface lives here (no separate /dashboard route):
- * Timing + Groups + Settings inside AppShell once authenticated.
+ * Main Distro V2 interface (Timing + Groups + Settings).
+ * Onboarding never auto-opens when the user is signed in or the extension is detected.
  */
 export default function App() {
   const { user, loading } = useAuth()
@@ -24,19 +23,19 @@ export default function App() {
   const [tab, setTab] = useState<AppTab>('timing')
   const [wizardOpen, setWizardOpen] = useState(false)
 
-  // Session in localStorage counts as authenticated even before /api/auth/me returns
   const hasLocalSession = Boolean(getStoredSessionToken())
   const isAuthenticated = Boolean(user) || hasLocalSession
+  const extensionReady =
+    data.connection.extensionConnected || Boolean(data.settings.lastGroupSyncAt)
 
+  // Permanently skip blocking onboarding once signed in or extension is connected.
   useEffect(() => {
-    if (!isAuthenticated) return
-    if (data.groups.length === 0 && !wasOnboardingSkipped()) {
-      setWizardOpen(true)
-    }
-  }, [isAuthenticated, data.groups.length])
+    if (!isAuthenticated && !extensionReady) return
+    markOnboardingSkipped()
+  }, [isAuthenticated, extensionReady])
 
   function openSetupGuide() {
-    clearOnboardingSkipped()
+    // Manual only — never traps the user after login / extension connect.
     setWizardOpen(true)
   }
 
@@ -65,6 +64,7 @@ export default function App() {
         open={wizardOpen}
         onClose={(opts) => {
           setWizardOpen(false)
+          markOnboardingSkipped()
           if (opts?.goToGroups) setTab('groups')
         }}
       />

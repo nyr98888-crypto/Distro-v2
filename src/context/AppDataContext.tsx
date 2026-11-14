@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -16,6 +17,12 @@ import type {
   UserSettings,
 } from '@shared/types'
 import { createBootstrap } from '../data/mock'
+import { appConfig } from '../lib/config'
+import { authHeaders, getStoredSessionToken } from '../lib/sessionStore'
+import { mergeGroups } from '../lib/groupPaste'
+
+const GROUPS_LS_KEY = 'distro_groups_cache'
+const SCHEDULES_LS_KEY = 'distro_schedules_cache'
 
 interface AppDataContextValue {
   data: AppBootstrap
@@ -29,9 +36,60 @@ interface AppDataContextValue {
   addCollection: (name: string, color?: string) => void
   updateSettings: (patch: Partial<UserSettings>) => void
   refreshStats: () => void
+  refreshGroups: () => Promise<void>
+  syncGroupsToServer: (groups: FacebookGroup[]) => Promise<{ ok: boolean; count: number }>
 }
 
 const AppDataContext = createContext<AppDataContextValue | null>(null)
+
+function readCachedGroups(): FacebookGroup[] {
+  try {
+    const raw = localStorage.getItem(GROUPS_LS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as FacebookGroup[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeCachedGroups(groups: FacebookGroup[]): void {
+  try {
+    localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groups))
+  } catch {
+    /* ignore */
+  }
+}
+
+const DEMO_SCHEDULE_TITLES = new Set([
+  'מוציא אישי — דירוג קבוצות',
+  'מבצע סוף שבוע ללקוחות חדשים',
+  'עדכון דרושים — משרה מלאה',
+  'שיתוף לקהילת השותפים',
+  'פרסום יומי - דירות מרכז',
+  'מבצע סוף שבוע לעסקים',
+])
+
+function readCachedSchedules(): ScheduledPost[] {
+  try {
+    const raw = localStorage.getItem(SCHEDULES_LS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as ScheduledPost[]
+    if (!Array.isArray(parsed)) return []
+    // Drop legacy demo campaigns that may still sit in localStorage.
+    return parsed.filter((s) => !DEMO_SCHEDULE_TITLES.has(s.title))
+  } catch {
+    return []
+  }
+}
+
+function writeCachedSchedules(schedules: ScheduledPost[]): void {
+  try {
+    localStorage.setItem(SCHEDULES_LS_KEY, JSON.stringify(schedules))
+  } catch {
+    /* ignore */
+  }
+}
 
 function refreshDerived(data: AppBootstrap): AppBootstrap {
   return {
@@ -53,10 +111,128 @@ function refreshDerived(data: AppBootstrap): AppBootstrap {
   }
 }
 
+function initialBootstrap(): AppBootstrap {
+  const base = createBootstrap()
+  const groups = readCachedGroups()
+  const schedules = readCachedSchedules()
+  const lastSync =
+    groups.find((g) => g.syncedAt)?.syncedAt ||
+    (groups.length > 0 ? new Date().toISOString() : null)
+  return refreshDerived({
+    ...base,
+    groups,
+    schedules,
+    settings: {
+      ...base.settings,
+      lastGroupSyncAt: lastSync,
+      metaAccountLabel: null,
+      metaConnected: false,
+    },
+  })
+}
+
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppBootstrap>(() => createBootstrap())
+  const [data, setData] = useState<AppBootstrap>(() => initialBootstrap())
+
+  const applyGroups = useCallback((groups: FacebookGroup[], syncedAt?: string | null) => {
+    writeCachedGroups(groups)
+    setData((prev) =>
+      refreshDerived({
+        ...prev,
+        groups,
+        settings: {
+          ...prev.settings,
+          lastGroupSyncAt: syncedAt ?? prev.settings.lastGroupSyncAt ?? new Date().toISOString(),
+        },
+      }),
+    )
+  }, [])
+
+  const refreshGroups = useCallback(async () => {
+    try {
+      const res = await fetch(appConfig.groupsUrl, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: authHeaders(),
+      })
+      if (!res.ok) return
+      const json = (await res.json()) as { groups?: FacebookGroup[] }
+      const remote = Array.isArray(json.groups) ? json.groups : []
+      if (remote.length === 0) return
+      setData((prev) => {
+        const merged = mergeGroups(prev.groups, remote)
+        writeCachedGroups(merged)
+        return refreshDerived({
+          ...prev,
+          groups: merged,
+          settings: {
+            ...prev.settings,
+            lastGroupSyncAt: new Date().toISOString(),
+          },
+        })
+      })
+    } catch {
+      /* keep local cache */
+    }
+  }, [])
+
+  const syncGroupsToServer = useCallback(
+    async (groups: FacebookGroup[]): Promise<{ ok: boolean; count: number }> => {
+      const token = getStoredSessionToken()
+      if (!token) {
+        applyGroups(groups, new Date().toISOString())
+        return { ok: true, count: groups.length }
+      }
+      try {
+        const res = await fetch(appConfig.syncGroupsUrl, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders(),
+          },
+          body: JSON.stringify({
+            groups: groups.map((g) => ({
+              name: g.name,
+              fbGroupId: g.fbGroupId,
+              url: g.url,
+              memberCount: g.memberCount,
+              avatarUrl: g.avatarUrl,
+            })),
+            syncedAt: new Date().toISOString(),
+          }),
+        })
+        const body = (await res.json().catch(() => ({}))) as { count?: number }
+        applyGroups(groups, new Date().toISOString())
+        if (!res.ok) return { ok: false, count: groups.length }
+        return { ok: true, count: body.count ?? groups.length }
+      } catch {
+        applyGroups(groups, new Date().toISOString())
+        return { ok: true, count: groups.length }
+      }
+    },
+    [applyGroups],
+  )
+
+  // Load + poll groups so extension sync appears without full page reload.
+  useEffect(() => {
+    void refreshGroups()
+    const id = window.setInterval(() => void refreshGroups(), 4000)
+    const onFocus = () => void refreshGroups()
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === GROUPS_LS_KEY) void refreshGroups()
+    }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [refreshGroups])
 
   const setSchedules = useCallback((schedules: ScheduledPost[]) => {
+    writeCachedSchedules(schedules)
     setData((prev) => refreshDerived({ ...prev, schedules }))
   }, [])
 
@@ -83,19 +259,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const schedules = existing
         ? prev.schedules.map((s) => (s.id === id ? row : s))
         : [row, ...prev.schedules]
+      writeCachedSchedules(schedules)
       return refreshDerived({ ...prev, schedules })
     })
   }, [])
 
   const setScheduleStatus = useCallback((id: string, status: ScheduleStatus) => {
-    setData((prev) =>
-      refreshDerived({
-        ...prev,
-        schedules: prev.schedules.map((s) =>
-          s.id === id ? { ...s, status, updatedAt: new Date().toISOString() } : s,
-        ),
-      }),
-    )
+    setData((prev) => {
+      const schedules = prev.schedules.map((s) =>
+        s.id === id ? { ...s, status, updatedAt: new Date().toISOString() } : s,
+      )
+      writeCachedSchedules(schedules)
+      return refreshDerived({ ...prev, schedules })
+    })
   }, [])
 
   const duplicateSchedule = useCallback((id: string) => {
@@ -110,30 +286,33 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
-      return refreshDerived({ ...prev, schedules: [copy, ...prev.schedules] })
+      const schedules = [copy, ...prev.schedules]
+      writeCachedSchedules(schedules)
+      return refreshDerived({ ...prev, schedules })
     })
   }, [])
 
   const deleteSchedule = useCallback((id: string) => {
-    setData((prev) =>
-      refreshDerived({
-        ...prev,
-        schedules: prev.schedules.filter((s) => s.id !== id),
-      }),
-    )
+    setData((prev) => {
+      const schedules = prev.schedules.filter((s) => s.id !== id)
+      writeCachedSchedules(schedules)
+      return refreshDerived({ ...prev, schedules })
+    })
   }, [])
 
-  const setGroups = useCallback((groups: FacebookGroup[]) => {
-    setData((prev) => refreshDerived({ ...prev, groups }))
-  }, [])
+  const setGroups = useCallback(
+    (groups: FacebookGroup[]) => {
+      applyGroups(groups, new Date().toISOString())
+    },
+    [applyGroups],
+  )
 
   const toggleGroupActive = useCallback((id: string) => {
-    setData((prev) =>
-      refreshDerived({
-        ...prev,
-        groups: prev.groups.map((g) => (g.id === id ? { ...g, active: !g.active } : g)),
-      }),
-    )
+    setData((prev) => {
+      const groups = prev.groups.map((g) => (g.id === id ? { ...g, active: !g.active } : g))
+      writeCachedGroups(groups)
+      return refreshDerived({ ...prev, groups })
+    })
   }, [])
 
   const addCollection = useCallback((name: string, color = '#4F46E5') => {
@@ -178,6 +357,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       addCollection,
       updateSettings,
       refreshStats,
+      refreshGroups,
+      syncGroupsToServer,
     }),
     [
       data,
@@ -191,6 +372,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       addCollection,
       updateSettings,
       refreshStats,
+      refreshGroups,
+      syncGroupsToServer,
     ],
   )
 
